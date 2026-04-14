@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "artimanager"
+version = "0.1.0"
+description = "Personal literature workspace for paper management and research workflow"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf>=1.23",
+    "anthropic>=0.30",
+    "openai>=1.40",
+    "click>=8.1",
+    "requests>=2.31",
+    "pyzotero>=1.6",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "responses>=0.24",
+]
+
+[project.scripts]
+artimanager = "artimanager.cli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:importlib._bootstrap",
+]

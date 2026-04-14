@@ -1,0 +1,66 @@
+# ArtiManager configuration example.
+# Copy to a local config.toml and edit paths/provider choices.
+# Store only environment variable names here, never real API keys or tokens.
+
+# Folders to scan for local PDF papers.
+scan_folders = [
+    "~/Papers",
+]
+
+# SQLite database path. The first `scan` command initializes it.
+db_path = "artimanager.db"
+
+# Markdown note and analysis artifact root.
+notes_root = "notes"
+
+# Optional note template. This path is resolved from the directory where
+# you run commands, so adjust it if your config lives elsewhere.
+template_path = "data/paper-note-template.md"
+
+# Log level: DEBUG, INFO, WARNING, ERROR.
+log_level = "INFO"
+
+# Default schedule label for new tracking rules.
+tracking_schedule = "daily"
+
+[agent]
+# Provider: "claude", "openai", "local", or "mock".
+provider = "claude"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[agent.overrides.analysis]
+# Optional analysis-specific provider override.
+# Leave fields empty to inherit from [agent].
+provider = ""
+model = ""
+api_key_env = ""
+
+[openai]
+# auth_mode:
+# - "api_key_env": official OpenAI API key mode
+# - "codex_chatgpt": bridge through Codex CLI after `codex login --device-auth`
+auth_mode = "api_key_env"
+base_url = "https://api.openai.com/v1"
+timeout_seconds = 60
+codex_bin = "codex"
+codex_auth_path = "~/.codex/auth.json"
+
+[local]
+# Ollama-compatible local model endpoint.
+endpoint = "http://localhost:11434"
+timeout_seconds = 60
+
+[deepxiv]
+# Optional DeepXiv discovery backend. DeepXiv is topic-only in this release.
+enabled = false
+api_token_env = "DEEPXIV_TOKEN"
+base_url = "https://data.rag.ac.cn/arxiv/"
+timeout_seconds = 20
+search_mode = "hybrid"
+
+[zotero]
+# Optional Zotero integration.
+library_id = ""
+library_type = "user"
+api_key_env = "ZOTERO_API_KEY"

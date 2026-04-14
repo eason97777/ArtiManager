@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Analyses | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Analysis Artifacts</h1>
+  <p>Read-only list of agent-generated analysis records.</p>
+</section>
+
+<section class="panel">
+  <form class="form-grid" method="get" action="/analyses">
+    <label>
+      Paper ID
+      <input type="text" name="paper_id" value="{{ paper_id_filter }}">
+    </label>
+    <label>
+      Analysis Type
+      <input type="text" name="analysis_type" value="{{ analysis_type_filter }}">
+    </label>
+    <label>
+      Limit
+      <input type="number" name="limit" min="1" max="200" value="{{ limit }}">
+    </label>
+    <button type="submit" class="btn">Apply</button>
+  </form>
+</section>
+
+<section class="panel">
+  {% if records %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Analysis ID</th>
+        <th>Type</th>
+        <th>Paper IDs</th>
+        <th>Provider</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for record in records %}
+      <tr>
+        <td><a href="/analyses/{{ record.analysis_id }}">{{ record.analysis_id }}</a></td>
+        <td>{{ record.analysis_type }}</td>
+        <td>{{ record.paper_ids|join(", ") }}</td>
+        <td>{{ record.provider_id or "(unknown)" }}</td>
+        <td>{{ record.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No analysis records found.</p>
+  {% endif %}
+</section>
+{% endblock %}

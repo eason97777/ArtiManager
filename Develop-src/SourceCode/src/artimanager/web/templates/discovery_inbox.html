@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Discovery Inbox | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Discovery Inbox</h1>
+  <p>Review online candidates before import.</p>
+</section>
+
+<section class="panel">
+  <form class="form-grid" method="get" action="/discovery">
+    <label>
+      Status
+      <select name="status">
+        <option value="" {% if not status_filter %}selected{% endif %}>all</option>
+        <option value="new" {% if status_filter == "new" %}selected{% endif %}>new</option>
+        <option value="reviewed" {% if status_filter == "reviewed" %}selected{% endif %}>reviewed</option>
+        <option value="saved" {% if status_filter == "saved" %}selected{% endif %}>saved</option>
+        <option value="ignored" {% if status_filter == "ignored" %}selected{% endif %}>ignored</option>
+        <option value="imported" {% if status_filter == "imported" %}selected{% endif %}>imported</option>
+      </select>
+    </label>
+    <label>
+      Trigger Type
+      <select name="trigger_type">
+        <option value="" {% if not trigger_type_filter %}selected{% endif %}>all</option>
+        <option value="paper_anchor" {% if trigger_type_filter == "paper_anchor" %}selected{% endif %}>paper_anchor</option>
+        <option value="topic_anchor" {% if trigger_type_filter == "topic_anchor" %}selected{% endif %}>topic_anchor</option>
+        <option value="tracking_rule" {% if trigger_type_filter == "tracking_rule" %}selected{% endif %}>tracking_rule</option>
+      </select>
+    </label>
+    <label>
+      Trigger Ref
+      <input type="text" name="trigger_ref" value="{{ trigger_ref_filter }}">
+    </label>
+    <label>
+      Limit
+      <input type="number" name="limit" min="1" max="500" value="{{ limit }}">
+    </label>
+    <button type="submit" class="btn">Apply Filters</button>
+  </form>
+</section>
+
+<section class="panel">
+  {% if rows %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Candidate</th>
+        <th>Source</th>
+        <th>Status</th>
+        <th>Trigger</th>
+        <th>Review Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>
+          <strong>{{ row.title }}</strong>
+          <div class="muted">{{ row.authors|join(", ") if row.authors else "(unknown)" }}</div>
+          <div class="muted">
+            {{ row.published_at or "?" }}
+            {% if row.external_id %} · {{ row.external_id }}{% endif %}
+          </div>
+          {% if row.relevance_context %}
+          <details class="relevance">
+            <summary>Relevance context</summary>
+            <pre>{{ row.relevance_context }}</pre>
+          </details>
+          {% endif %}
+        </td>
+        <td>{{ row.source }}</td>
+        <td>
+          {{ row.status }}
+          {% if row.review_action %}<div class="muted">{{ row.review_action }}</div>{% endif %}
+        </td>
+        <td>
+          {{ row.trigger_type }}
+          <div class="muted">{{ row.trigger_ref or "(none)" }}</div>
+        </td>
+        <td>
+          <form class="inline-form" method="post" action="/discovery/{{ row.discovery_result_id }}/review">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+            <select name="action">
+              {% for act in review_actions %}
+              <option value="{{ act }}">{{ act }}</option>
+              {% endfor %}
+            </select>
+            <input type="text" name="link_to_paper" placeholder="link target paper id">
+            <input type="text" name="author_name" placeholder="author (optional)">
+            <button type="submit" class="btn btn-small">Apply</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Discovery inbox is empty.</p>
+  {% endif %}
+</section>
+{% endblock %}

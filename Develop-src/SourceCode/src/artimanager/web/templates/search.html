@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Search | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Search</h1>
+  <p>Search metadata and full text grouped by canonical paper.</p>
+</section>
+
+<section class="panel">
+  <form class="form-grid" method="get" action="/search">
+    <label>
+      Query
+      <input type="text" name="q" value="{{ q }}" placeholder="graph neural network">
+    </label>
+    <label>
+      Source
+      <select name="source">
+        <option value="all" {% if source == "all" %}selected{% endif %}>all</option>
+        <option value="metadata" {% if source == "metadata" %}selected{% endif %}>metadata</option>
+        <option value="fulltext" {% if source == "fulltext" %}selected{% endif %}>fulltext</option>
+      </select>
+    </label>
+    <label>
+      Workflow Status (comma)
+      <input type="text" name="status" value="{{ status }}" placeholder="inbox,confirmed">
+    </label>
+    <label>
+      Reading State (comma)
+      <input type="text" name="reading" value="{{ reading }}" placeholder="to_read,read">
+    </label>
+    <label>
+      Year Min
+      <input type="number" name="year_min" value="{{ year_min or '' }}">
+    </label>
+    <label>
+      Year Max
+      <input type="number" name="year_max" value="{{ year_max or '' }}">
+    </label>
+    <label>
+      Limit
+      <input type="number" name="limit" min="1" max="200" value="{{ limit }}">
+    </label>
+    <button type="submit" class="btn">Search</button>
+  </form>
+</section>
+
+{% if query_error %}
+<section class="panel">
+  <p class="error-text">{{ query_error }}</p>
+</section>
+{% endif %}
+
+{% if q %}
+<section class="panel">
+  <h2>{{ total_results }} result(s)</h2>
+  {% if grouped_results %}
+    {% for group_name, items in grouped_results.items() %}
+    <h3>{{ group_name }}</h3>
+    <ul class="list">
+      {% for item in items %}
+      <li>
+        <a href="/papers/{{ item.paper_id }}">{{ item.title or "(untitled)" }}</a>
+        <div class="muted">
+          {{ item.authors|join(", ") if item.authors else "(unknown)" }}
+          {% if item.year %} · {{ item.year }}{% endif %}
+          · score {{ "%.2f"|format(item.score) }}
+        </div>
+        {% if item.snippet %}
+        <div class="snippet">{{ item.snippet }}</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+  {% else %}
+  <p class="muted">No matching results.</p>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

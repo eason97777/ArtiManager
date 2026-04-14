@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Dashboard</h1>
+  <p>Daily overview of your local paper workflow.</p>
+</section>
+
+<section class="metric-grid">
+  <article class="metric-card">
+    <h2>Total Papers</h2>
+    <p class="metric-value">{{ counts.papers_total }}</p>
+  </article>
+  <article class="metric-card">
+    <h2>Inbox Papers</h2>
+    <p class="metric-value">{{ counts.papers_inbox }}</p>
+  </article>
+  <article class="metric-card">
+    <h2>New Discovery</h2>
+    <p class="metric-value">{{ counts.discovery_new }}</p>
+  </article>
+  <article class="metric-card">
+    <h2>Enabled Rules</h2>
+    <p class="metric-value">{{ counts.tracking_enabled }}</p>
+  </article>
+  <article class="metric-card">
+    <h2>Analyses</h2>
+    <p class="metric-value">{{ counts.analysis_total }}</p>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <h2>Recent Analyses</h2>
+    <a href="/analyses">View all</a>
+  </div>
+  {% if recent_analyses %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Analysis ID</th>
+        <th>Type</th>
+        <th>Papers</th>
+        <th>Provider</th>
+        <th>Created</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in recent_analyses %}
+      <tr>
+        <td><a href="/analyses/{{ item.analysis_id }}">{{ item.analysis_id }}</a></td>
+        <td>{{ item.analysis_type }}</td>
+        <td>{{ item.paper_ids|join(", ") }}</td>
+        <td>{{ item.provider_id or "(unknown)" }}</td>
+        <td>{{ item.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No analysis artifacts yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

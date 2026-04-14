@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Tracking Rules | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Tracking Rules</h1>
+  <p>Manage and run arXiv tracking subscriptions.</p>
+</section>
+
+{% if run_summary %}
+<section class="panel">
+  <p><strong>Latest run:</strong> {{ run_summary }}</p>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Create Rule</h2>
+  <form class="form-grid" method="post" action="/tracking/create">
+    <label>
+      Name
+      <input type="text" name="name" required>
+    </label>
+    <label>
+      Type
+      <select name="rule_type" required>
+        <option value="keyword">keyword</option>
+        <option value="topic">topic</option>
+        <option value="author">author</option>
+        <option value="category">category</option>
+      </select>
+    </label>
+    <label>
+      Query
+      <input type="text" name="query" required>
+    </label>
+    <label>
+      Schedule
+      <input type="text" name="schedule" placeholder="daily">
+    </label>
+    <label class="checkbox-line">
+      <input type="checkbox" name="enabled" value="true" checked>
+      Enabled
+    </label>
+    <button type="submit" class="btn">Create</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Run Rules</h2>
+  <form class="inline-form" method="post" action="/tracking/run">
+    <label>
+      Limit
+      <input type="number" name="limit" min="1" max="200" value="20">
+    </label>
+    <button type="submit" class="btn">Run All Enabled Rules</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Existing Rules</h2>
+  {% if rules %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Query</th>
+        <th>Schedule</th>
+        <th>Enabled</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for rule in rules %}
+      <tr>
+        <td>{{ rule.name }}</td>
+        <td>{{ rule.rule_type }}</td>
+        <td>{{ rule.query }}</td>
+        <td>{{ rule.schedule or "(none)" }}</td>
+        <td>{{ "true" if rule.enabled else "false" }}</td>
+        <td>
+          <form class="inline-form compact" method="post" action="/tracking/{{ rule.tracking_rule_id }}/update">
+            <input type="text" name="name" value="{{ rule.name }}">
+            <input type="text" name="query" value="{{ rule.query }}">
+            <input type="text" name="schedule" value="{{ rule.schedule or '' }}">
+            <select name="enabled">
+              <option value="true" {% if rule.enabled %}selected{% endif %}>enabled</option>
+              <option value="false" {% if not rule.enabled %}selected{% endif %}>disabled</option>
+            </select>
+            <button type="submit" class="btn btn-small">Update</button>
+          </form>
+          <form class="inline-form compact" method="post" action="/tracking/{{ rule.tracking_rule_id }}/run">
+            <input type="number" name="limit" min="1" max="200" value="20">
+            <button type="submit" class="btn btn-small">Run</button>
+          </form>
+          <form class="inline-form compact danger" method="post" action="/tracking/{{ rule.tracking_rule_id }}/delete" data-confirm="Delete this tracking rule?">
+            <input type="hidden" name="redirect_to" value="/tracking">
+            <button type="submit" class="btn btn-danger btn-small">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No tracking rules yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

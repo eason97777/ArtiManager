@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Paper {{ paper.paper_id }} | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>{{ paper.title }}</h1>
+  <p>
+    {{ paper.authors|join(", ") if paper.authors else "(unknown authors)" }}
+    {% if paper.year %} · {{ paper.year }}{% endif %}
+  </p>
+  <p class="muted">ID: {{ paper.paper_id }}</p>
+</section>
+
+<section class="detail-grid">
+  <article class="panel">
+    <h2>Metadata</h2>
+    <dl class="kv">
+      <dt>Workflow</dt><dd>{{ paper.workflow_status }}</dd>
+      <dt>Reading</dt><dd>{{ paper.reading_state }}</dd>
+      <dt>Research</dt><dd>{{ paper.research_state }}</dd>
+      <dt>DOI</dt><dd>{{ paper.doi or "(none)" }}</dd>
+      <dt>arXiv</dt><dd>{{ paper.arxiv_id or "(none)" }}</dd>
+      <dt>Venue</dt><dd>{{ paper.venue or "(none)" }}</dd>
+      <dt>Updated</dt><dd>{{ paper.updated_at }}</dd>
+    </dl>
+    <h3>Abstract</h3>
+    <p>{{ paper.abstract or "(no abstract)" }}</p>
+  </article>
+
+  <article class="panel">
+    <h2>Note (IDE Handoff)</h2>
+    {% if note %}
+    <dl class="kv">
+      <dt>Title</dt><dd>{{ note.title or "(untitled)" }}</dd>
+      <dt>Path</dt><dd>{{ note.location }}</dd>
+      <dt>Status</dt>
+      <dd>
+        {% if note.exists %}
+        <span class="ok-text">file exists</span>
+        {% else %}
+        <span class="warning-text">missing file reference</span>
+        {% endif %}
+      </dd>
+    </dl>
+    {% if note.preview %}
+    <div class="hint-box">
+      <strong>Preview:</strong> {{ note.preview }}
+    </div>
+    {% endif %}
+    {% if not note.exists %}
+    <div class="warning-box">
+      Note record exists but local file is missing. Use your IDE/local workspace to restore or recreate it.
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="muted">No markdown note linked for this paper.</p>
+    {% endif %}
+    <p class="hint-text">Editing and authoring notes remain IDE/Markdown workflow tasks (CLI: <code>note-create</code>).</p>
+  </article>
+
+  <article class="panel">
+    <h2>Validation (Local Workspace Handoff)</h2>
+    {% if validations %}
+    <ul class="list">
+      {% for v in validations %}
+      <li>
+        <strong>{{ v.outcome }}</strong> · {{ v.updated_at }}
+        {% if v.path %}<div class="muted">Path: {{ v.path }}</div>{% endif %}
+        {% if v.repo_url %}<div class="muted">Repo: {{ v.repo_url }}</div>{% endif %}
+        {% if v.summary %}<div>{{ v.summary }}</div>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No validation records.</p>
+    {% endif %}
+    <p class="hint-text">Create/update validation records through CLI and local code workspace.</p>
+  </article>
+
+  <article class="panel">
+    <h2>Zotero Link (Zotero Handoff)</h2>
+    {% if zotero_link %}
+    <dl class="kv">
+      <dt>Library</dt><dd>{{ zotero_link.zotero_library_id or "(none)" }}</dd>
+      <dt>Item Key</dt><dd>{{ zotero_link.zotero_item_key }}</dd>
+      <dt>Attachment</dt><dd>{{ zotero_link.attachment_mode or "(none)" }}</dd>
+      <dt>Last Synced</dt><dd>{{ zotero_link.last_synced_at or "(never)" }}</dd>
+    </dl>
+    {% else %}
+    <p class="muted">Not linked to Zotero.</p>
+    {% endif %}
+    <p class="hint-text">Bibliography-centric changes remain Zotero-native workflows.</p>
+  </article>
+
+  <article class="panel">
+    <h2>Relationships</h2>
+    <div class="panel-actions">
+      <a href="/relationships/review?paper_id={{ paper.paper_id }}&status=suggested">Open Review Queue (Suggested)</a>
+      <a href="/relationships/review?paper_id={{ paper.paper_id }}&status=all">Open Full Queue (Paper)</a>
+    </div>
+
+    <h3>Suggested</h3>
+    {% if suggested_relationships %}
+    <ul class="list">
+      {% for r in suggested_relationships %}
+      <li>
+        <div>
+          {{ r.source_paper_id }} -> {{ r.target_paper_id }} · {{ r.relationship_type }}
+          <div class="muted">{{ r.evidence_type or "(no evidence type)" }}</div>
+          {% if r.evidence_text %}<div class="muted">{{ r.evidence_text }}</div>{% endif %}
+        </div>
+        <div class="inline-form">
+          <form method="post" action="/relationships/{{ r.relationship_id }}/review">
+            <input type="hidden" name="action" value="confirm">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+            <button type="submit" class="btn btn-small">Confirm</button>
+          </form>
+          <form method="post" action="/relationships/{{ r.relationship_id }}/review">
+            <input type="hidden" name="action" value="reject">
+            <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+            <button type="submit" class="btn btn-danger btn-small">Reject</button>
+          </form>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No suggested relationships.</p>
+    {% endif %}
+
+    <h3>Confirmed</h3>
+    {% if confirmed_relationships %}
+    <ul class="list">
+      {% for r in confirmed_relationships %}
+      <li>{{ r.source_paper_id }} -> {{ r.target_paper_id }} · {{ r.relationship_type }}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No confirmed relationships.</p>
+    {% endif %}
+
+    {% if other_relationships %}
+    <h3>Other</h3>
+    <ul class="list">
+      {% for r in other_relationships %}
+      <li>{{ r.source_paper_id }} -> {{ r.target_paper_id }} · {{ r.relationship_type }} · {{ r.status }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <h2>Analysis Artifacts</h2>
+    {% if analyses %}
+    <ul class="list">
+      {% for a in analyses %}
+      <li>
+        <a href="/analyses/{{ a.analysis_id }}">{{ a.analysis_id }}</a>
+        <div class="muted">{{ a.analysis_type }} · {{ a.created_at }}</div>
+        <div class="muted">Artifact: {{ a.content_location or "(none)" }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No analysis records for this paper.</p>
+    {% endif %}
+    <p class="hint-text">Generation/compare/suggest actions remain CLI-owned in this phase.</p>
+  </article>
+
+  <article class="panel">
+    <h2>File Assets</h2>
+    {% if files %}
+    <ul class="list">
+      {% for f in files %}
+      <li>
+        <strong>{{ f.filename }}</strong>
+        <div class="muted">{{ f.absolute_path }}</div>
+        <div class="muted">{{ f.mime_type or "unknown mime" }} · {{ f.import_status }} · {{ f.created_at }}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No file assets linked.</p>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

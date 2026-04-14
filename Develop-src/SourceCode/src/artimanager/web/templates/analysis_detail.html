@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Analysis {{ record.analysis_id }} | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Analysis {{ record.analysis_id }}</h1>
+  <p>{{ record.analysis_type }} · {{ record.created_at }}</p>
+</section>
+
+<section class="panel">
+  <dl class="kv">
+    <dt>Type</dt><dd>{{ record.analysis_type }}</dd>
+    <dt>Papers</dt><dd>{{ record.paper_ids|join(", ") }}</dd>
+    <dt>Provider</dt><dd>{{ record.provider_id or "(unknown)" }}</dd>
+    <dt>Prompt Version</dt><dd>{{ record.prompt_version or "(none)" }}</dd>
+    <dt>Evidence Scope</dt><dd>{{ record.evidence_scope or "(none)" }}</dd>
+    <dt>Artifact</dt><dd>{{ record.content_location or "(none)" }}</dd>
+  </dl>
+</section>
+
+<section class="panel">
+  <h2>Artifact Content</h2>
+  {% if artifact_text %}
+  <pre class="artifact">{{ artifact_text }}</pre>
+  {% elif artifact_error %}
+  <p class="error-text">{{ artifact_error }}</p>
+  {% else %}
+  <p class="muted">No artifact content available.</p>
+  {% endif %}
+</section>
+{% endblock %}

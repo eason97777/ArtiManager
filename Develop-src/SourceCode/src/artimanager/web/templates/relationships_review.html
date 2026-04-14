@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Relationship Review | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Relationship Review Queue</h1>
+  <p>Review suggested/confirmed/rejected relationships with paper and status filters.</p>
+</section>
+
+<section class="panel">
+  <form class="form-grid" method="get" action="/relationships/review">
+    <label>
+      Paper ID
+      <input type="text" name="paper_id" value="{{ paper_id_filter }}">
+    </label>
+    <label>
+      Status
+      <select name="status">
+        <option value="all" {% if status_filter == "all" %}selected{% endif %}>all</option>
+        <option value="suggested" {% if status_filter == "suggested" %}selected{% endif %}>suggested</option>
+        <option value="confirmed" {% if status_filter == "confirmed" %}selected{% endif %}>confirmed</option>
+        <option value="rejected" {% if status_filter == "rejected" %}selected{% endif %}>rejected</option>
+      </select>
+    </label>
+    <label>
+      Limit
+      <input type="number" name="limit" min="1" max="500" value="{{ limit }}">
+    </label>
+    <button type="submit" class="btn">Apply Filters</button>
+  </form>
+</section>
+
+<section class="panel">
+  {% if rows %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Source</th>
+        <th>Target</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Evidence</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>
+          <a href="/papers/{{ row.source_paper_id }}">{{ row.source_title }}</a>
+          <div class="muted">{{ row.source_paper_id }}</div>
+        </td>
+        <td>
+          <a href="/papers/{{ row.target_paper_id }}">{{ row.target_title }}</a>
+          <div class="muted">{{ row.target_paper_id }}</div>
+        </td>
+        <td>{{ row.relationship_type }}</td>
+        <td>{{ row.status }}</td>
+        <td>
+          {{ row.evidence_type or "(none)" }}
+          {% if row.evidence_text %}
+          <div class="muted">{{ row.evidence_text }}</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if row.status == "suggested" %}
+          <div class="inline-form">
+            <form method="post" action="/relationships/{{ row.relationship_id }}/review">
+              <input type="hidden" name="action" value="confirm">
+              <input type="hidden" name="redirect_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+              <button type="submit" class="btn btn-small">Confirm</button>
+            </form>
+            <form method="post" action="/relationships/{{ row.relationship_id }}/review">
+              <input type="hidden" name="action" value="reject">
+              <input type="hidden" name="redirect_to" value="{{ request.url.path }}{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+              <button type="submit" class="btn btn-danger btn-small">Reject</button>
+            </form>
+          </div>
+          {% else %}
+          <span class="muted">No review action</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No relationships match current filters.</p>
+  {% endif %}
+</section>
+{% endblock %}

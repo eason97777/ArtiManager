@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Inbox | ArtiManager{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Inbox Papers</h1>
+  <p>Untriaged papers currently in local inbox state.</p>
+</section>
+
+<section class="panel">
+  {% if papers %}
+  <table class="table">
+    <thead>
+      <tr>
+        <th>Title</th>
+        <th>Authors</th>
+        <th>Year</th>
+        <th>DOI / arXiv</th>
+        <th>State</th>
+        <th>Files</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in papers %}
+      <tr>
+        <td><a href="/papers/{{ p.paper_id }}">{{ p.title }}</a></td>
+        <td>{{ p.authors|join(", ") if p.authors else "(unknown)" }}</td>
+        <td>{{ p.year or "?" }}</td>
+        <td>
+          {% if p.doi %}DOI: {{ p.doi }}<br>{% endif %}
+          {% if p.arxiv_id %}arXiv: {{ p.arxiv_id }}{% endif %}
+        </td>
+        <td>{{ p.workflow_status }}</td>
+        <td>{{ p.file_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">Inbox is empty.</p>
+  {% endif %}
+</section>
+{% endblock %}
