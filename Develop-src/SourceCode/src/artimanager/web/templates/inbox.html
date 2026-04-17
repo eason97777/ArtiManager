@@ -4,6 +4,13 @@
 <section class="hero">
   <h1>Inbox Papers</h1>
   <p>Untriaged papers currently in local inbox state.</p>
+  <p class="quick-links">
+    Browse:
+    <a href="/search?status=inbox">Inbox</a>
+    <a href="/search?status=active">Active</a>
+    <a href="/search?status=archived">Archived</a>
+    <a href="/search?status=ignored">Ignored</a>
+  </p>
 </section>
 
 <section class="panel">
@@ -17,6 +24,7 @@
         <th>DOI / arXiv</th>
         <th>State</th>
         <th>Files</th>
+        <th>Quick Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -29,8 +37,35 @@
           {% if p.doi %}DOI: {{ p.doi }}<br>{% endif %}
           {% if p.arxiv_id %}arXiv: {{ p.arxiv_id }}{% endif %}
         </td>
-        <td>{{ p.workflow_status }}</td>
+        <td>
+          {{ p.workflow_status }}<br>
+          <span class="muted">{{ p.reading_state }} · {{ p.research_state }}</span>
+        </td>
         <td>{{ p.file_count }}</td>
+        <td>
+          <div class="inline-form">
+            <form method="post" action="/papers/{{ p.paper_id }}/state">
+              <input type="hidden" name="workflow_status" value="active">
+              <input type="hidden" name="redirect_to" value="/papers/inbox">
+              <button type="submit" class="btn btn-small">Active</button>
+            </form>
+            <form method="post" action="/papers/{{ p.paper_id }}/state">
+              <input type="hidden" name="workflow_status" value="archived">
+              <input type="hidden" name="redirect_to" value="/papers/inbox">
+              <button type="submit" class="btn btn-small">Archive</button>
+            </form>
+            <form method="post" action="/papers/{{ p.paper_id }}/state">
+              <input type="hidden" name="workflow_status" value="ignored">
+              <input type="hidden" name="redirect_to" value="/papers/inbox">
+              <button type="submit" class="btn btn-danger btn-small">Ignore</button>
+            </form>
+            <form method="post" action="/papers/{{ p.paper_id }}/state">
+              <input type="hidden" name="reading_state" value="read">
+              <input type="hidden" name="redirect_to" value="/papers/inbox">
+              <button type="submit" class="btn btn-small btn-secondary">Read</button>
+            </form>
+          </div>
+        </td>
       </tr>
       {% endfor %}
     </tbody>

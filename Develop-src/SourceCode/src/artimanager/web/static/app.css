@@ -110,6 +110,21 @@ a:hover {
   color: var(--muted);
 }
 
+.quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.65rem !important;
+}
+
+.quick-links a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  background: #fffef9;
+}
+
 .banner {
   border-radius: 12px;
   padding: 0.7rem 0.9rem;
@@ -241,17 +256,31 @@ label {
 
 input,
 select,
+textarea,
 button {
   font: inherit;
 }
 
 input,
-select {
+select,
+textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.42rem 0.5rem;
   background: #fff;
   color: var(--ink);
+}
+
+textarea {
+  resize: vertical;
+}
+
+.span-all {
+  grid-column: 1 / -1;
+}
+
+.compact-form {
+  margin-top: 0.7rem;
 }
 
 .btn {
@@ -279,6 +308,18 @@ select {
 
 .btn-danger:hover {
   background: #8f1f15;
+}
+
+.btn-secondary {
+  border-color: var(--line);
+  color: var(--ink);
+  background: #fffef9;
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
 }
 
 .checkbox-line {
@@ -345,6 +386,27 @@ select {
 .ok-text {
   color: var(--ok);
   font-weight: 600;
+}
+
+.file-handoff {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
+.path-text,
+.copy-value {
+  overflow-wrap: anywhere;
+}
+
+.path-text {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fafaf7;
+  padding: 0.28rem 0.4rem;
+  font-size: 0.86rem;
 }
 
 .snippet {

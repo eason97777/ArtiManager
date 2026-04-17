@@ -24,6 +24,65 @@
     </dl>
     <h3>Abstract</h3>
     <p>{{ paper.abstract or "(no abstract)" }}</p>
+
+    <h3>Triage</h3>
+    <form class="form-grid" method="post" action="/papers/{{ paper.paper_id }}/state">
+      <input type="hidden" name="redirect_to" value="{{ request.url.path }}">
+      <label>
+        Workflow
+        <select name="workflow_status">
+          {% for value in workflow_status_values %}
+          <option value="{{ value }}" {% if paper.workflow_status == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Reading
+        <select name="reading_state">
+          {% for value in reading_state_values %}
+          <option value="{{ value }}" {% if paper.reading_state == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Research
+        <select name="research_state">
+          {% for value in research_state_values %}
+          <option value="{{ value }}" {% if paper.research_state == value %}selected{% endif %}>{{ value }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit" class="btn">Save state</button>
+    </form>
+
+    <h3>Metadata Correction</h3>
+    <form class="form-grid metadata-form" method="post" action="/papers/{{ paper.paper_id }}/metadata">
+      <label>
+        Title
+        <input type="text" name="title" value="{{ paper.title if paper.title != '(untitled)' else '' }}">
+      </label>
+      <label>
+        Authors
+        <input type="text" name="authors" value="{{ paper.authors|join(', ') if paper.authors else '' }}">
+      </label>
+      <label>
+        Year
+        <input type="number" name="year" value="{{ paper.year or '' }}">
+      </label>
+      <label>
+        DOI
+        <input type="text" name="doi" value="{{ paper.doi or '' }}">
+      </label>
+      <label>
+        arXiv
+        <input type="text" name="arxiv_id" value="{{ paper.arxiv_id or '' }}">
+      </label>
+      <label class="span-all">
+        Abstract
+        <textarea name="abstract" rows="4">{{ paper.abstract or '' }}</textarea>
+      </label>
+      <button type="submit" class="btn">Save metadata</button>
+    </form>
   </article>
 
   <article class="panel">
@@ -53,8 +112,41 @@
     {% endif %}
     {% else %}
     <p class="muted">No markdown note linked for this paper.</p>
+    <form method="post" action="/papers/{{ paper.paper_id }}/notes/create">
+      <button type="submit" class="btn btn-small">Create Markdown note</button>
+    </form>
     {% endif %}
     <p class="hint-text">Editing and authoring notes remain IDE/Markdown workflow tasks (CLI: <code>note-create</code>).</p>
+  </article>
+
+  <article class="panel">
+    <h2>Tags</h2>
+    {% if tags %}
+    <ul class="list">
+      {% for tag in tags %}
+      <li>
+        <strong>{{ tag.name }}</strong>{% if tag.tag_type %} <span class="muted">({{ tag.tag_type }})</span>{% endif %}
+        <form class="inline-form" method="post" action="/papers/{{ paper.paper_id }}/tags/remove">
+          <input type="hidden" name="tag_name" value="{{ tag.name }}">
+          <button type="submit" class="btn btn-danger btn-small">Remove</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted">No tags attached.</p>
+    {% endif %}
+    <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/tags">
+      <label>
+        Tag
+        <input type="text" name="tag_name" placeholder="graph neural networks" required>
+      </label>
+      <label>
+        Type
+        <input type="text" name="tag_type" placeholder="topic">
+      </label>
+      <button type="submit" class="btn">Add tag</button>
+    </form>
   </article>
 
   <article class="panel">
@@ -73,22 +165,45 @@
     {% else %}
     <p class="muted">No validation records.</p>
     {% endif %}
-    <p class="hint-text">Create/update validation records through CLI and local code workspace.</p>
+    <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/validations">
+      <label>
+        Workspace Path
+        <input type="text" name="path" placeholder="/path/to/reproduction">
+      </label>
+      <label>
+        Repo URL
+        <input type="text" name="repo_url" placeholder="https://example.com/repo.git">
+      </label>
+      <label>
+        Environment
+        <input type="text" name="environment_note" placeholder="Python 3.12">
+      </label>
+      <button type="submit" class="btn">Add validation record</button>
+    </form>
+    <p class="hint-text">This form records validation metadata only. Running experiments remains a local workspace task.</p>
   </article>
 
   <article class="panel">
     <h2>Zotero Link (Zotero Handoff)</h2>
     {% if zotero_link %}
     <dl class="kv">
-      <dt>Library</dt><dd>{{ zotero_link.zotero_library_id or "(none)" }}</dd>
-      <dt>Item Key</dt><dd>{{ zotero_link.zotero_item_key }}</dd>
+      <dt>Library ID</dt><dd>{{ zotero_link.zotero_library_id or "(none)" }}</dd>
+      <dt>Library Type</dt><dd>{{ zotero_link.zotero_library_type or "(unknown)" }}</dd>
+      <dt>Item Key</dt>
+      <dd>
+        <span class="copy-value">{{ zotero_link.zotero_item_key }}</span>
+        <button type="button" class="btn btn-small btn-secondary copy-button"
+                data-copy-text="{{ zotero_link.zotero_item_key }}">
+          Copy item key
+        </button>
+      </dd>
       <dt>Attachment</dt><dd>{{ zotero_link.attachment_mode or "(none)" }}</dd>
       <dt>Last Synced</dt><dd>{{ zotero_link.last_synced_at or "(never)" }}</dd>
     </dl>
     {% else %}
     <p class="muted">Not linked to Zotero.</p>
     {% endif %}
-    <p class="hint-text">Bibliography-centric changes remain Zotero-native workflows.</p>
+    <p class="hint-text">Bibliography-centric changes remain Zotero-native workflows. Direct Zotero opening is not controlled by ArtiManager in this phase.</p>
   </article>
 
   <article class="panel">
@@ -173,7 +288,18 @@
       {% for f in files %}
       <li>
         <strong>{{ f.filename }}</strong>
-        <div class="muted">{{ f.absolute_path }}</div>
+        <div class="file-handoff">
+          <code class="path-text">{{ f.absolute_path }}</code>
+          <button type="button" class="btn btn-small btn-secondary copy-button"
+                  data-copy-text="{{ f.absolute_path }}">
+            Copy path
+          </button>
+          {% if local_open_supported %}
+          <form method="post" action="/papers/{{ paper.paper_id }}/files/{{ f.file_id }}/open">
+            <button type="submit" class="btn btn-small">Open locally</button>
+          </form>
+          {% endif %}
+        </div>
         <div class="muted">{{ f.mime_type or "unknown mime" }} · {{ f.import_status }} · {{ f.created_at }}</div>
       </li>
       {% endfor %}
@@ -181,6 +307,7 @@
     {% else %}
     <p class="muted">No file assets linked.</p>
     {% endif %}
+    <p class="hint-text">Open locally only uses database-registered file assets. If launch fails, copy the path and open it manually.</p>
   </article>
 </section>
 {% endblock %}

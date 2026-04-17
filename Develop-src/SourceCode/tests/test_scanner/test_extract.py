@@ -9,10 +9,13 @@ import pytest
 from artimanager.scanner.extract import (
     PaperMetadata,
     PymupdfExtractor,
+    _choose_title_from_first_page,
     _extract_abstract,
     _find_arxiv_id,
     _find_doi,
     _find_year,
+    is_low_quality_title,
+    normalize_title_text,
 )
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -50,6 +53,37 @@ class TestRegexHelpers:
 
     def test_find_year_none(self) -> None:
         assert _find_year("no year") is None
+
+
+class TestTitleQuality:
+    """Title normalization and fallback heuristics."""
+
+    def test_normalize_title_text_preserves_unicode(self) -> None:
+        assert normalize_title_text("  量子   Control\nPaper  ") == "量子 Control Paper"
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            "",
+            "  ",
+            "þÿBad title",
+            "A\ufffdB\ufffdC",
+            "cid:12 cid:34",
+            "!!! --- ???",
+            "x",
+            "/tmp/paper.pdf",
+            "paper.pdf",
+        ],
+    )
+    def test_low_quality_title_detected(self, title: str) -> None:
+        assert is_low_quality_title(title)
+
+    def test_plausible_title_not_low_quality(self) -> None:
+        assert not is_low_quality_title("A Robust Method for Local Paper Management")
+
+    def test_first_page_title_skips_abstract_heading(self) -> None:
+        text = "\n\nAbstract\nA Robust Method for Local Paper Management\nAuthors"
+        assert _choose_title_from_first_page(text) == "A Robust Method for Local Paper Management"
 
 
 class TestExtractAbstract:

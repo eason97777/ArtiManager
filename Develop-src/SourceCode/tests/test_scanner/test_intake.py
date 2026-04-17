@@ -99,7 +99,7 @@ class TestRunIntake:
         finally:
             conn.close()
 
-    def test_same_path_skipped_silently(self, tmp_path: Path) -> None:
+    def test_same_path_reported_unchanged(self, tmp_path: Path) -> None:
         cfg, conn = self._setup(tmp_path)
         papers_dir = Path(cfg.scan_folders[0])
         (papers_dir / "test.pdf").write_bytes(b"%PDF-1.4 same path")
@@ -107,9 +107,76 @@ class TestRunIntake:
             r1 = run_intake(cfg, conn, extractor=FakeExtractor())
             assert r1.new_count == 1
 
-            # Re-scan same file — should be skipped entirely
+            # Re-scan same file — should not duplicate rows.
             r2 = run_intake(cfg, conn, extractor=FakeExtractor())
-            assert r2.total == 0
+            assert r2.unchanged_count == 1
+            assert r2.total == 1
+            assert r2.details[0].status == "unchanged"
+
+            paper_count = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+            asset_count = conn.execute("SELECT COUNT(*) FROM file_assets").fetchone()[0]
+            assert paper_count == 1
+            assert asset_count == 1
+        finally:
+            conn.close()
+
+    def test_changed_same_path_refreshes_file_asset(self, tmp_path: Path) -> None:
+        cfg, conn = self._setup(tmp_path)
+        papers_dir = Path(cfg.scan_folders[0])
+        pdf = papers_dir / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4 original")
+        try:
+            r1 = run_intake(cfg, conn, extractor=FakeExtractor())
+            assert r1.new_count == 1
+            before = conn.execute(
+                "SELECT file_id, sha256 FROM file_assets WHERE absolute_path = ?",
+                (str(pdf.resolve()),),
+            ).fetchone()
+
+            pdf.write_bytes(b"%PDF-1.4 changed content")
+            r2 = run_intake(cfg, conn, extractor=FakeExtractor())
+            assert r2.updated_count == 1
+            assert r2.details[0].status == "updated"
+
+            paper_count = conn.execute("SELECT COUNT(*) FROM papers").fetchone()[0]
+            asset_count = conn.execute("SELECT COUNT(*) FROM file_assets").fetchone()[0]
+            after = conn.execute(
+                "SELECT file_id, sha256, import_status, full_text FROM file_assets WHERE absolute_path = ?",
+                (str(pdf.resolve()),),
+            ).fetchone()
+            assert paper_count == 1
+            assert asset_count == 1
+            assert after["file_id"] == before["file_id"]
+            assert after["sha256"] != before["sha256"]
+            assert after["import_status"] == "updated"
+            assert after["full_text"] == "Fake full text content for testing purposes."
+        finally:
+            conn.close()
+
+    def test_changed_same_path_repairs_low_quality_title(self, tmp_path: Path) -> None:
+        cfg, conn = self._setup(tmp_path)
+        papers_dir = Path(cfg.scan_folders[0])
+        pdf = papers_dir / "test.pdf"
+        pdf.write_bytes(b"%PDF-1.4 original")
+        try:
+            run_intake(cfg, conn, extractor=FakeExtractor(PaperMetadata(title="Good Extracted Title")))
+            paper_id = conn.execute("SELECT paper_id FROM papers").fetchone()["paper_id"]
+            conn.execute(
+                "UPDATE papers SET title = 'þÿbad-title' WHERE paper_id = ?",
+                (paper_id,),
+            )
+            conn.commit()
+
+            pdf.write_bytes(b"%PDF-1.4 changed content")
+            report = run_intake(
+                cfg,
+                conn,
+                extractor=FakeExtractor(PaperMetadata(title="Repaired Paper Title")),
+            )
+
+            assert report.updated_count == 1
+            row = conn.execute("SELECT title FROM papers WHERE paper_id = ?", (paper_id,)).fetchone()
+            assert row["title"] == "Repaired Paper Title"
         finally:
             conn.close()
 

@@ -7,6 +7,7 @@ and a default ``PymupdfExtractor`` implementation using pymupdf (fitz).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -48,6 +49,15 @@ class TextExtractor(Protocol):
 _DOI_RE = re.compile(r"\b(10\.\d{4,}/[^\s]+)")
 _ARXIV_RE = re.compile(r"(?:arXiv:?\s*)(\d{4}\.\d{4,5}(?:v\d+)?)", re.IGNORECASE)
 _YEAR_RE = re.compile(r"\b((?:19|20)\d{2})\b")
+_PDF_TITLE_ARTIFACTS = ("þÿ", "\ufffd", "cid:")
+_SECTION_TITLE_STOPWORDS = {
+    "abstract",
+    "introduction",
+    "references",
+    "acknowledgements",
+    "acknowledgments",
+    "contents",
+}
 
 
 def _find_doi(text: str) -> str:
@@ -68,6 +78,74 @@ def _find_year(text: str) -> int | None:
         if 1950 <= val <= 2030:
             return val
     return None
+
+
+def normalize_title_text(title: str) -> str:
+    """Normalize whitespace in an extracted title while preserving Unicode."""
+    return re.sub(r"\s+", " ", title).strip()
+
+
+def is_low_quality_title(title: str | None) -> bool:
+    """Return True when a PDF metadata title is clearly not a paper title."""
+    if title is None:
+        return True
+
+    normalized = normalize_title_text(title)
+    if len(normalized) < 6:
+        return True
+
+    lowered = normalized.lower()
+    if any(artifact in lowered for artifact in _PDF_TITLE_ARTIFACTS):
+        return True
+
+    if normalized.endswith(".pdf") or "/" in normalized or "\\" in normalized:
+        return True
+
+    chars = [ch for ch in normalized if not ch.isspace()]
+    if not chars:
+        return True
+
+    control_count = sum(
+        1 for ch in chars
+        if unicodedata.category(ch).startswith("C")
+    )
+    if control_count / len(chars) > 0.08:
+        return True
+
+    letter_or_digit_count = sum(1 for ch in chars if ch.isalnum())
+    if letter_or_digit_count / len(chars) < 0.45:
+        return True
+
+    words = re.findall(r"[\w]+", normalized, flags=re.UNICODE)
+    if len(words) == 1 and len(words[0]) < 10:
+        return True
+
+    return False
+
+
+def _choose_title_from_first_page(first_page_text: str) -> str:
+    """Choose a plausible paper title from the top of page 1."""
+    if not first_page_text:
+        return ""
+
+    for raw_line in first_page_text.splitlines()[:30]:
+        line = normalize_title_text(raw_line)
+        if not line:
+            continue
+        lowered = line.lower().strip(":")
+        if lowered in _SECTION_TITLE_STOPWORDS:
+            continue
+        if lowered.startswith(("arxiv:", "doi:", "http://", "https://", "www.")):
+            continue
+        if "@" in line:
+            continue
+        if len(line) > 240:
+            continue
+        if is_low_quality_title(line):
+            continue
+        return line
+
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +173,7 @@ class PymupdfExtractor:
         try:
             # --- PDF document-level metadata ---
             info = doc.metadata or {}
-            meta.title = (info.get("title") or "").strip()
+            document_title = normalize_title_text(info.get("title") or "")
             raw_author = (info.get("author") or "").strip()
             if raw_author:
                 # authors often separated by , or ; or "and"
@@ -110,13 +188,10 @@ class PymupdfExtractor:
             if len(doc) > 0:
                 first_page_text = doc[0].get_text() or ""
 
-            # Title fallback: first non-empty line of first page
-            if not meta.title and first_page_text:
-                for line in first_page_text.split("\n"):
-                    stripped = line.strip()
-                    if stripped and len(stripped) > 5:
-                        meta.title = stripped
-                        break
+            if is_low_quality_title(document_title):
+                meta.title = _choose_title_from_first_page(first_page_text)
+            else:
+                meta.title = document_title
 
             combined = first_page_text
             # DOI

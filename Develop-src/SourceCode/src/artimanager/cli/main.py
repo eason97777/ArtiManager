@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -24,6 +25,13 @@ from artimanager.db.connection import get_connection, init_db
 from artimanager.discovery.engine import run_discovery
 from artimanager.discovery.review import review_discovery_result
 from artimanager.notes.manager import create_note, get_note, init_note_from_template
+from artimanager.papers.manager import (
+    READING_STATE_VALUES,
+    RESEARCH_STATE_VALUES,
+    WORKFLOW_STATUS_VALUES,
+    update_paper_metadata,
+    update_paper_state,
+)
 from artimanager.scanner.intake import run_intake
 from artimanager.search.indexer import index_paper, rebuild_search_index
 from artimanager.search.query import SearchFilters, search_all, search_fulltext, search_notes, search_papers
@@ -85,13 +93,26 @@ def scan(config_path: str) -> None:
     finally:
         conn.close()
 
-    click.echo(f"Scan complete: {report.new_count} new, "
-               f"{report.duplicate_count} duplicate, "
-               f"{report.failed_count} failed "
-               f"(total {report.total})")
+    summary_parts = [
+        f"{report.new_count} new",
+        f"{report.duplicate_count} duplicate",
+    ]
+    if report.updated_count or report.unchanged_count:
+        summary_parts.extend([
+            f"{report.updated_count} updated",
+            f"{report.unchanged_count} unchanged",
+        ])
+    summary_parts.append(f"{report.failed_count} failed")
+    click.echo(f"Scan complete: {', '.join(summary_parts)} (total {report.total})")
 
     for d in report.details:
-        marker = {"new": "+", "duplicate": "=", "failed": "!"}[d.status]
+        marker = {
+            "new": "+",
+            "duplicate": "=",
+            "updated": "~",
+            "unchanged": "-",
+            "failed": "!",
+        }[d.status]
         line = f"  [{marker}] {d.path}"
         if d.message:
             line += f"  ({d.message})"
@@ -168,6 +189,86 @@ def inbox(config_path: str, json_output: bool) -> None:
             click.echo(f"    arXiv: {r[5]}")
         click.echo(f"    ID: {r[0]}")
         click.echo()
+
+
+@cli.command("paper-update")
+@click.option("--config", "-c", "config_path", required=True,
+              type=click.Path(exists=True), help="Path to config.toml")
+@click.option("--paper-id", required=True, help="Paper ID to update")
+@click.option("--workflow-status", type=click.Choice(WORKFLOW_STATUS_VALUES), default=None)
+@click.option("--reading-state", type=click.Choice(READING_STATE_VALUES), default=None)
+@click.option("--research-state", type=click.Choice(RESEARCH_STATE_VALUES), default=None)
+@click.option("--title", default=None, help="Corrected paper title")
+@click.option("--authors", default=None, help="Authors separated by comma, semicolon, or newline")
+@click.option("--year", default=None, type=int, help="Publication year")
+@click.option("--doi", default=None, help="DOI")
+@click.option("--arxiv-id", default=None, help="arXiv ID")
+@click.option("--abstract", default=None, help="Abstract text")
+def paper_update(
+    config_path: str,
+    paper_id: str,
+    workflow_status: str | None,
+    reading_state: str | None,
+    research_state: str | None,
+    title: str | None,
+    authors: str | None,
+    year: int | None,
+    doi: str | None,
+    arxiv_id: str | None,
+    abstract: str | None,
+) -> None:
+    """Update paper triage states or manually correct metadata."""
+    cfg = load_config(config_path)
+    db_path = Path(cfg.db_path)
+    if not db_path.exists():
+        click.echo("Database not found. Run 'scan' first.", err=True)
+        sys.exit(1)
+
+    metadata_updates = {
+        key: value
+        for key, value in {
+            "title": title,
+            "authors": authors,
+            "year": year,
+            "doi": doi,
+            "arxiv_id": arxiv_id,
+            "abstract": abstract,
+        }.items()
+        if value is not None
+    }
+    state_requested = any(
+        value is not None
+        for value in (workflow_status, reading_state, research_state)
+    )
+    if not state_requested and not metadata_updates:
+        click.echo("Error: no paper fields provided.", err=True)
+        sys.exit(1)
+
+    conn = get_connection(cfg.db_path)
+    changed: dict[str, object] = {}
+    try:
+        if state_requested:
+            changed.update(update_paper_state(
+                conn,
+                paper_id,
+                workflow_status=workflow_status,
+                reading_state=reading_state,
+                research_state=research_state,
+            ))
+        if metadata_updates:
+            changed.update(update_paper_metadata(conn, paper_id, **metadata_updates))
+            index_paper(conn, paper_id)
+        conn.commit()
+    except (sqlite3.Error, ValueError) as exc:
+        conn.rollback()
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
+    finally:
+        conn.close()
+
+    click.echo(f"Paper updated: {paper_id}")
+    for field in changed:
+        click.echo(f"  {field}")
 
 
 @cli.command()
@@ -889,15 +990,21 @@ def validation_create(config_path: str, paper_id: str, path: str | None,
             conn, paper_id, path=path, repo_url=repo_url,
             environment_note=env_note,
         )
-        click.echo(f"Validation created: {record.validation_id}")
-        click.echo(f"  Paper: {paper_id}")
-        click.echo(f"  Outcome: {record.outcome}")
-        if record.path:
-            click.echo(f"  Path: {record.path}")
-        if record.repo_url:
-            click.echo(f"  Repo: {record.repo_url}")
+        conn.commit()
+    except (sqlite3.Error, ValueError) as exc:
+        conn.rollback()
+        click.echo(f"Error: {exc}", err=True)
+        sys.exit(1)
     finally:
         conn.close()
+
+    click.echo(f"Validation created: {record.validation_id}")
+    click.echo(f"  Paper: {paper_id}")
+    click.echo(f"  Outcome: {record.outcome}")
+    if record.path:
+        click.echo(f"  Path: {record.path}")
+    if record.repo_url:
+        click.echo(f"  Repo: {record.repo_url}")
 
 
 @cli.command("validation-update")

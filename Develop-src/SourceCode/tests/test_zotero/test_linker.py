@@ -13,6 +13,7 @@ from artimanager.zotero.linker import (
     find_paper_by_zotero_key,
     get_zotero_link,
     link_paper_to_zotero,
+    read_zotero_notes,
     sync_paper_metadata,
 )
 
@@ -152,3 +153,48 @@ def test_sync_metadata_paper_missing(db_conn: sqlite3.Connection) -> None:
     item = ZoteroItem(key="X", item_type="book", title="T", creators=[])
     with pytest.raises(ValueError, match="not found"):
         sync_paper_metadata(db_conn, "nonexistent", item)
+
+
+class _FakeZoteroClient:
+    def __init__(self, children: list[dict]) -> None:
+        self.children = children
+
+    def get_children_raw(self, item_key: str) -> list[dict]:
+        assert item_key == "ABC123"
+        return self.children
+
+
+def test_read_zotero_notes_returns_notes(db_conn: sqlite3.Connection) -> None:
+    link_paper_to_zotero(db_conn, "paper-1", "ABC123", "12345")
+    client = _FakeZoteroClient([
+        {
+            "key": "NOTE1",
+            "data": {
+                "itemType": "note",
+                "note": "<p>Important note</p>",
+                "tags": [{"tag": "review"}, "manual"],
+            },
+        },
+        {
+            "key": "ATTACH1",
+            "data": {"itemType": "attachment", "title": "PDF"},
+        },
+    ])
+
+    notes = read_zotero_notes(db_conn, "paper-1", client)
+
+    assert notes == [
+        {
+            "note_key": "NOTE1",
+            "note_html": "<p>Important note</p>",
+            "tags": ["review", "manual"],
+        }
+    ]
+
+
+def test_read_zotero_notes_returns_empty_without_link(
+    db_conn: sqlite3.Connection,
+) -> None:
+    client = _FakeZoteroClient([])
+
+    assert read_zotero_notes(db_conn, "paper-1", client) == []

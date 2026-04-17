@@ -181,6 +181,7 @@ def read_zotero_notes(conn, paper_id: str, client) -> list[dict]:
         return []
 
     raw_children = client.get_children_raw(link.zotero_item_key)
+    notes: list[dict] = []
     for child in raw_children:
         data = child.get("data", {})
         if data.get("itemType") == "note":

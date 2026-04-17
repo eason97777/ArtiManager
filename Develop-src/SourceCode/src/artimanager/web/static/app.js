@@ -8,4 +8,27 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+
+  const copyButtons = document.querySelectorAll("button[data-copy-text]");
+  for (const button of copyButtons) {
+    const originalText = button.textContent;
+    button.addEventListener("click", async () => {
+      const text = button.getAttribute("data-copy-text") || "";
+      if (!navigator.clipboard) {
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = "Copied";
+        window.setTimeout(() => {
+          button.textContent = originalText;
+        }, 1200);
+      } catch {
+        button.textContent = "Copy failed";
+        window.setTimeout(() => {
+          button.textContent = originalText;
+        }, 1600);
+      }
+    });
+  }
 });

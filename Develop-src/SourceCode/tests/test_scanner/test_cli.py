@@ -37,3 +37,21 @@ def test_scan_cli_prints_summary_and_details(tmp_path: Path) -> None:
     assert "1 new, 0 duplicate, 0 failed" in result.output
     assert "[+]" in result.output
     assert str(pdf) in result.output
+
+
+def test_scan_cli_reports_unchanged_rescan(tmp_path: Path) -> None:
+    papers_dir = tmp_path / "papers"
+    papers_dir.mkdir()
+    pdf = papers_dir / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    cfg = _write_config(tmp_path, papers_dir)
+    runner = CliRunner()
+
+    first = runner.invoke(cli, ["scan", "--config", str(cfg)])
+    assert first.exit_code == 0
+
+    second = runner.invoke(cli, ["scan", "--config", str(cfg)])
+
+    assert second.exit_code == 0
+    assert "1 unchanged" in second.output
+    assert "[-]" in second.output

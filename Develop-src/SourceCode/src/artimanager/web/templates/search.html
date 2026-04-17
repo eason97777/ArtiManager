@@ -3,7 +3,14 @@
 {% block content %}
 <section class="hero">
   <h1>Search</h1>
-  <p>Search metadata and full text grouped by canonical paper.</p>
+  <p>Search metadata/full text, or browse papers by state filters.</p>
+  <p class="quick-links">
+    Browse:
+    <a href="/search?status=inbox">Inbox</a>
+    <a href="/search?status=active">Active</a>
+    <a href="/search?status=archived">Archived</a>
+    <a href="/search?status=ignored">Ignored</a>
+  </p>
 </section>
 
 <section class="panel">
@@ -22,7 +29,7 @@
     </label>
     <label>
       Workflow Status (comma)
-      <input type="text" name="status" value="{{ status }}" placeholder="inbox,confirmed">
+      <input type="text" name="status" value="{{ status }}" placeholder="inbox,active">
     </label>
     <label>
       Reading State (comma)
@@ -50,7 +57,7 @@
 </section>
 {% endif %}
 
-{% if q %}
+{% if q or status or reading or year_min or year_max %}
 <section class="panel">
   <h2>{{ total_results }} result(s)</h2>
   {% if grouped_results %}
@@ -65,6 +72,12 @@
           {% if item.year %} · {{ item.year }}{% endif %}
           · score {{ "%.2f"|format(item.score) }}
         </div>
+        {% set state = state_map.get(item.paper_id) %}
+        {% if state %}
+        <div class="muted">
+          {{ state.workflow_status }} · {{ state.reading_state }} · {{ state.research_state }}
+        </div>
+        {% endif %}
         {% if item.snippet %}
         <div class="snippet">{{ item.snippet }}</div>
         {% endif %}

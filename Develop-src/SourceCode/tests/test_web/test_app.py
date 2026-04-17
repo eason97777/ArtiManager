@@ -38,6 +38,30 @@ def test_inbox_page_renders_paper_rows(web_env: WebEnv) -> None:
     assert response.status_code == 200
     assert "Inbox Paper" in response.text
     assert "/papers/p1" in response.text
+    assert "/papers/p1/state" in response.text
+
+
+def test_inbox_quick_state_action_updates_paper(web_env: WebEnv) -> None:
+    conn = get_connection(web_env.db_path)
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, authors, workflow_status) VALUES (?, ?, ?, 'inbox')",
+        ("p1", "Inbox Paper", json.dumps(["Alice"])),
+    )
+    conn.commit()
+    conn.close()
+
+    client = _client(web_env)
+    response = client.post(
+        "/papers/p1/state",
+        data={"workflow_status": "active", "redirect_to": "/papers/inbox"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    conn = get_connection(web_env.db_path)
+    row = conn.execute("SELECT workflow_status FROM papers WHERE paper_id = 'p1'").fetchone()
+    conn.close()
+    assert row["workflow_status"] == "active"
 
 
 def test_paper_detail_returns_404_for_missing_paper(web_env: WebEnv) -> None:
@@ -68,6 +92,63 @@ def test_search_page_shows_grouped_results(web_env: WebEnv) -> None:
     assert response.status_code == 200
     assert "metadata" in response.text
     assert "fulltext" in response.text
+
+
+def test_search_blank_numeric_fields_render_html(web_env: WebEnv) -> None:
+    conn = get_connection(web_env.db_path)
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, authors, abstract, workflow_status) VALUES (?, ?, ?, ?, 'inbox')",
+        ("p-meta", "Graph Methods", json.dumps(["Author A"]), "metadata graph match"),
+    )
+    rebuild_search_index(conn)
+    conn.close()
+
+    client = _client(web_env)
+    response = client.get(
+        "/search",
+        params={"q": "graph", "year_min": "", "year_max": "", "limit": ""},
+    )
+
+    assert response.status_code == 200
+    assert "Graph Methods" in response.text
+    assert "application/json" not in response.headers.get("content-type", "")
+
+
+def test_search_invalid_year_renders_html_error(web_env: WebEnv) -> None:
+    client = _client(web_env)
+    response = client.get("/search", params={"q": "graph", "year_min": "abc"})
+
+    assert response.status_code == 200
+    assert "Year Min must be an integer." in response.text
+    assert "application/json" not in response.headers.get("content-type", "")
+
+
+def test_search_browses_archived_papers_without_query(web_env: WebEnv) -> None:
+    conn = get_connection(web_env.db_path)
+    conn.execute(
+        """
+        INSERT INTO papers (paper_id, title, authors, workflow_status)
+        VALUES ('p-archived', 'Archived Paper', ?, 'archived')
+        """,
+        (json.dumps(["Author A"]),),
+    )
+    conn.execute(
+        """
+        INSERT INTO papers (paper_id, title, authors, workflow_status)
+        VALUES ('p-inbox', 'Inbox Paper', ?, 'inbox')
+        """,
+        (json.dumps(["Author B"]),),
+    )
+    conn.commit()
+    conn.close()
+
+    client = _client(web_env)
+    response = client.get("/search", params={"status": "archived"})
+
+    assert response.status_code == 200
+    assert "Archived Paper" in response.text
+    assert "/papers/p-archived" in response.text
+    assert "Inbox Paper" not in response.text
 
 
 def test_discovery_inbox_filter_works(web_env: WebEnv) -> None:

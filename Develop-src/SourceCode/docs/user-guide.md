@@ -147,12 +147,36 @@ Scan configured PDF folders and initialize the database:
 artimanager scan --config config.toml
 ```
 
+Repeated scans are safe and idempotent:
+
+- unchanged files at the same absolute path are reported as unchanged and are not duplicated
+- changed files at the same absolute path refresh the existing `file_assets` row without destructively relinking it to another paper
+- copied duplicate PDFs at new paths are attached as duplicate file assets for the existing paper
+- title extraction falls back from low-quality PDF metadata to plausible first-page title text when possible
+
+PDF metadata extraction is best-effort. Difficult or malformed PDFs may still need manual metadata correction.
+
 List inbox papers:
 
 ```bash
 artimanager inbox --config config.toml
 artimanager inbox --config config.toml --json-output
 ```
+
+Update paper triage states or manually corrected metadata:
+
+```bash
+artimanager paper-update --config config.toml --paper-id <paper_id> --workflow-status active
+artimanager paper-update --config config.toml --paper-id <paper_id> --reading-state read
+artimanager paper-update --config config.toml --paper-id <paper_id> --research-state relevant
+artimanager paper-update --config config.toml --paper-id <paper_id> --title "Corrected title"
+```
+
+State values are controlled. Supported values are:
+
+- `workflow_status`: `inbox`, `active`, `archived`, `ignored`
+- `reading_state`: `to_read`, `reading`, `read`, `skimmed`, `deferred`
+- `research_state`: `untriaged`, `relevant`, `background`, `maybe`, `not_relevant`
 
 Search the library:
 
@@ -163,6 +187,8 @@ artimanager search "query text" --config config.toml --source fulltext
 artimanager search "note keyword" --config config.toml --source note
 artimanager search "query text" --config config.toml --filter-tags gnn,benchmark
 ```
+
+In the Web workbench, `/search` also works as a paper browser when you leave the query blank and use filters. For example, `/search?status=archived` lists archived papers so papers moved out of inbox can still be found without knowing their direct URL.
 
 Rebuild search indexes:
 
@@ -312,10 +338,31 @@ Configure Zotero only if you use Zotero integration:
 
 ```toml
 [zotero]
-library_id = "123456"
+library_id = "1234567"
 library_type = "user"
 api_key_env = "ZOTERO_API_KEY"
 ```
+
+`api_key_env` is the environment variable name only. Never paste the real Zotero API key into `config.toml`.
+
+Set the real key in your shell:
+
+```bash
+export ZOTERO_API_KEY="..."
+```
+
+Create a Zotero API key from Zotero web:
+
+- log into Zotero
+- open `https://www.zotero.org/settings/keys`
+- create a new private key
+- read access is sufficient for the current ArtiManager integration
+
+For a personal library, use your Zotero `userID` as `library_id` and set `library_type = "user"`. The `userID` is shown on the Zotero API keys/settings page.
+
+For a group library, use the numeric group ID as `library_id` and set `library_type = "group"`. Group IDs appear in Zotero group/API URLs as `/groups/<groupID>`.
+
+The `--zotero-key` value is the Zotero item key. It is not a DOI and not an arXiv ID. You can find it from Zotero web item URLs, Zotero API data, or item metadata exposed by API tools.
 
 Commands:
 
@@ -325,6 +372,22 @@ artimanager zotero-show --config config.toml --paper-id <paper_id>
 artimanager zotero-sync --config config.toml --dry-run
 artimanager zotero-sync --config config.toml
 ```
+
+Current capabilities:
+
+- `zotero-link` links a local `paper_id` to a Zotero item key, writes `zotero_links`, updates `papers.zotero_item_key`, fetches the Zotero item, and fills blank local metadata fields.
+- `zotero-show` shows the existing local Zotero link, fetches Zotero item metadata when API config is available, and displays child note count/summary.
+- `zotero-sync` iterates linked papers, fetches each Zotero item, fills blank local metadata fields, and supports `--dry-run`.
+
+Current boundaries:
+
+- ArtiManager does not write local changes back to Zotero.
+- ArtiManager does not create Zotero items.
+- ArtiManager does not upload or sync PDF attachments.
+- ArtiManager does not import Zotero notes into local Markdown notes.
+- ArtiManager does not sync Zotero tags into local tag tables.
+- ArtiManager does not automatically match local papers to Zotero items by DOI, title, or arXiv ID.
+- Metadata sync fills blank local fields only; it does not overwrite populated local fields.
 
 ## Web Workbench
 
@@ -351,15 +414,59 @@ Browser actions available:
 - discovery review actions
 - tracking rule create, update, delete, and run
 - relationship confirm and reject
+- paper-detail state updates for workflow, reading, and research status
+- paper-detail manual metadata correction for title, authors, year, DOI, arXiv ID, and abstract
+- paper-detail tag list/add/remove controls
+- paper-detail create-note action when a Markdown note is missing
+- paper-detail validation metadata record creation
 - paper-detail inspection of notes, validations, analysis artifacts, and relationships
+- paper-detail local handoff for registered file assets: visible path, copy path, and local open where supported
+- paper-detail Zotero handoff: visible library metadata, item key, and copy item key
 
 Actions intentionally left to CLI, editor, or Zotero:
 
 - editing Markdown note content
-- creating validation records
 - generating analysis artifacts
-- OS-level opening of local files
+- opening arbitrary local paths that are not registered file assets
+- running validation experiments or notebooks
 - Zotero item management
+
+Paper detail handoff limits:
+
+- Local open is only available for file assets already registered in the database.
+- The open route looks up the path by `paper_id` and `file_id`; it does not accept arbitrary path input.
+- The file must still exist on disk. If local open fails, copy the visible path and open it manually.
+- Zotero handoff exposes/copies the linked item key and library metadata only; it does not control Zotero, modify Zotero items, import notes, sync tags, or sync attachments.
+
+### Web Invocation Boundary
+
+The web workbench is a local review and handoff surface, not a replacement for every CLI command.
+
+Web-triggerable actions currently stay narrow:
+
+- discovery inbox review actions
+- tracking rule create, update, delete, and run
+- relationship confirm and reject
+- paper-detail state updates, manual metadata correction, tag add/remove controls
+- paper-detail creation of a missing Markdown note record/file
+- paper-detail creation of validation metadata records
+- paper-detail local file handoff for registered file assets
+- paper-detail Zotero item key handoff
+
+CLI remains the source of truth for broader workflow commands:
+
+- online discovery runs
+- validation experiment execution and notebook/workspace work
+- Markdown note content editing
+- analysis generation and comparison
+- relationship suggestion generation
+- any long-running provider-backed or network-backed operation not explicitly exposed as a safe web route
+
+This boundary is intentional. Long-running commands need job status, logs, cancellation, retries, and failure recovery before they become safe browser actions. Provider-backed commands also need credential and configuration diagnostics in the UI. Commands that write files or accept local paths need narrow validation and clear local-only security boundaries.
+
+Future web invocation should use a local job runner rather than shelling out from Web to CLI. A job runner should track job type, parameters, status, started and finished timestamps, stdout/stderr or structured logs, created artifact/result references, and failure messages.
+
+Good future job-runner candidates include topic discovery, single-paper analysis creation, multi-paper comparison, and relationship suggestion generation. Small direct web actions are acceptable when they remain bounded local DB/file operations with strict input validation and shared manager logic.
 
 ## Troubleshooting
 
