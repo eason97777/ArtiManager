@@ -7,7 +7,9 @@ Base URL: https://api.semanticscholar.org/graph/v1
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
+from urllib.parse import quote
 
 from artimanager.discovery._http import http_get
 from artimanager.discovery._models import ExternalPaper
@@ -17,8 +19,9 @@ logger = logging.getLogger(__name__)
 _S2_BASE = "https://api.semanticscholar.org/graph/v1"
 
 _PAPER_FIELDS = (
-    "title,authors,year,abstract,externalIds,citationCount,venue,url"
+    "paperId,title,authors,year,abstract,externalIds,citationCount,venue,url"
 )
+_ARXIV_VERSION_RE = re.compile(r"v\d+$")
 
 
 def _extract_doi(external_ids: dict | None) -> str | None:
@@ -42,7 +45,7 @@ def _parse_s2_paper(raw: dict[str, Any]) -> ExternalPaper:
     ext_ids = raw.get("externalIds")
     doi = _extract_doi(ext_ids)
     arxiv_id = _extract_arxiv(ext_ids)
-    external_id = doi or arxiv_id or ""
+    external_id = raw.get("paperId") or doi or arxiv_id or ""
 
     authors_raw = raw.get("authors") or []
     authors = [_parse_s2_author(a) for a in authors_raw if a.get("name")]
@@ -62,9 +65,22 @@ def _parse_s2_paper(raw: dict[str, Any]) -> ExternalPaper:
     )
 
 
+def semantic_scholar_identifier_for_doi(doi: str) -> str:
+    return f"DOI:{doi}"
+
+
+def semantic_scholar_identifier_for_arxiv(arxiv_id: str) -> str:
+    base_id = _ARXIV_VERSION_RE.sub("", arxiv_id)
+    return f"ARXIV:{base_id}"
+
+
+def _paper_url(identifier: str, suffix: str = "") -> str:
+    return f"{_S2_BASE}/paper/{quote(identifier, safe='')}{suffix}"
+
+
 def get_paper_by_doi(doi: str) -> ExternalPaper | None:
     """Look up a paper on S2 by DOI."""
-    url = f"{_S2_BASE}/paper/DOI:{doi}"
+    url = _paper_url(semantic_scholar_identifier_for_doi(doi))
     data = http_get(url, params={"fields": _PAPER_FIELDS})
     if data is None:
         return None
@@ -76,9 +92,7 @@ def get_paper_by_arxiv(arxiv_id: str) -> ExternalPaper | None:
 
     S2 API does not accept the ``vN`` version suffix, so we strip it.
     """
-    # Strip version suffix (e.g. "1803.02029v1" -> "1803.02029")
-    base_id = arxiv_id.split("v")[0] if "v" in arxiv_id else arxiv_id
-    url = f"{_S2_BASE}/paper/ARXIV:{base_id}"
+    url = _paper_url(semantic_scholar_identifier_for_arxiv(arxiv_id))
     data = http_get(url, params={"fields": _PAPER_FIELDS})
     if data is None:
         return None
@@ -87,9 +101,9 @@ def get_paper_by_arxiv(arxiv_id: str) -> ExternalPaper | None:
 
 def get_references(s2_paper_id: str, limit: int = 20) -> list[ExternalPaper]:
     """Get papers that the given paper cites (references)."""
-    url = f"{_S2_BASE}/paper/{s2_paper_id}/references"
+    url = _paper_url(s2_paper_id, "/references")
     data = http_get(url, params={
-        "fields": f"citedPaper.title,citedPaper.authors,citedPaper.year,"
+        "fields": f"citedPaper.paperId,citedPaper.title,citedPaper.authors,citedPaper.year,"
                   f"citedPaper.abstract,citedPaper.externalIds,"
                   f"citedPaper.citationCount,citedPaper.venue,citedPaper.url",
         "limit": limit,
@@ -107,9 +121,9 @@ def get_references(s2_paper_id: str, limit: int = 20) -> list[ExternalPaper]:
 
 def get_citations(s2_paper_id: str, limit: int = 20) -> list[ExternalPaper]:
     """Get papers that cite the given paper."""
-    url = f"{_S2_BASE}/paper/{s2_paper_id}/citations"
+    url = _paper_url(s2_paper_id, "/citations")
     data = http_get(url, params={
-        "fields": f"citingPaper.title,citingPaper.authors,citingPaper.year,"
+        "fields": f"citingPaper.paperId,citingPaper.title,citingPaper.authors,citingPaper.year,"
                   f"citingPaper.abstract,citingPaper.externalIds,"
                   f"citingPaper.citationCount,citingPaper.venue,citingPaper.url",
         "limit": limit,

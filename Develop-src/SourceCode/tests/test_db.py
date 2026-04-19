@@ -69,6 +69,7 @@ class TestCoreTables:
         "validation_records",
         "discovery_results",
         "tracking_rules",
+        "discovery_result_sources",
         "analysis_records",
     ]
 
@@ -83,6 +84,19 @@ class TestCoreTables:
             table_names = {row[0] for row in rows}
             for expected in self.EXPECTED_TABLES:
                 assert expected in table_names, f"Missing table: {expected}"
+        finally:
+            conn.close()
+
+    def test_new_paper_default_workflow_status_is_inbox(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        init_db(db_path)
+        conn = get_connection(db_path)
+        try:
+            conn.execute("INSERT INTO papers (paper_id, title) VALUES ('p1', 'Paper')")
+            row = conn.execute(
+                "SELECT workflow_status FROM papers WHERE paper_id = 'p1'"
+            ).fetchone()
+            assert row[0] == "inbox"
         finally:
             conn.close()
 

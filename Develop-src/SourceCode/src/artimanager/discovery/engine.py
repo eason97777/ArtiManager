@@ -6,7 +6,6 @@ Coordinates API adapters, deduplicates, and persists results to the
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 
@@ -15,6 +14,11 @@ from artimanager.db.utils import new_id
 from artimanager.discovery._models import ExternalPaper
 from artimanager.discovery.arxiv_api import search_by_topic as arxiv_search
 from artimanager.discovery.deepxiv_api import search_by_topic as deepxiv_search
+from artimanager.discovery.provenance import (
+    DiscoverySourceContext,
+    find_existing_discovery_result_id,
+    store_discovery_record_with_source,
+)
 from artimanager.discovery.semantic_scholar import (
     get_citations as s2_citations,
     get_paper_by_arxiv as s2_by_arxiv,
@@ -113,59 +117,13 @@ def result_exists(
     2. arXiv ID exact match
     3. fallback to (source, external_id)
     """
-    if doi:
-        row = conn.execute(
-            "SELECT 1 FROM discovery_results WHERE doi = ?",
-            (doi,),
-        ).fetchone()
-        if row is not None:
-            return True
-
-    if arxiv_id:
-        row = conn.execute(
-            "SELECT 1 FROM discovery_results WHERE arxiv_id = ?",
-            (arxiv_id,),
-        ).fetchone()
-        if row is not None:
-            return True
-
-    if not external_id:
-        return False
-    row = conn.execute(
-        "SELECT 1 FROM discovery_results WHERE source = ? AND external_id = ?",
-        (source, external_id),
-    ).fetchone()
-    return row is not None
-
-
-def _store_result(conn, record: DiscoveryRecord) -> str:
-    """Insert a discovery result. Returns the discovery_result_id."""
-    conn.execute(
-        """INSERT INTO discovery_results
-           (discovery_result_id, trigger_type, trigger_ref, source, external_id,
-            title, authors, abstract, doi, arxiv_id, published_at, relevance_score,
-            relevance_context, status, review_action, imported_paper_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            record.discovery_result_id,
-            record.trigger_type,
-            record.trigger_ref,
-            record.source,
-            record.external_id,
-            record.title,
-            json.dumps(record.authors) if record.authors else None,
-            record.abstract or None,
-            record.doi,
-            record.arxiv_id,
-            record.published_at,
-            record.relevance_score,
-            record.relevance_context,
-            record.status,
-            record.review_action,
-            record.imported_paper_id,
-        ),
-    )
-    return record.discovery_result_id
+    return find_existing_discovery_result_id(
+        conn,
+        source=source,
+        external_id=external_id,
+        doi=doi,
+        arxiv_id=arxiv_id,
+    ) is not None
 
 
 def store_discovery_record(conn, record: DiscoveryRecord) -> bool:
@@ -175,16 +133,16 @@ def store_discovery_record(conn, record: DiscoveryRecord) -> bool:
     """
     if not record.external_id and not record.doi and not record.arxiv_id:
         return False
-    if result_exists(
-        conn,
-        record.source,
-        record.external_id,
-        doi=record.doi,
-        arxiv_id=record.arxiv_id,
-    ):
-        return False
-    _store_result(conn, record)
-    return True
+    context = DiscoverySourceContext(
+        trigger_type=record.trigger_type,
+        trigger_ref=record.trigger_ref,
+        source=record.source,
+        source_external_id=record.external_id,
+        relevance_score=record.relevance_score,
+        relevance_context=record.relevance_context,
+    )
+    outcome = store_discovery_record_with_source(conn, record, context)
+    return outcome.candidate_inserted
 
 
 def run_discovery(
@@ -247,9 +205,27 @@ def run_discovery(
 
             if s2_id:
                 for p in s2_references(s2_id, limit=limit):
-                    _process_paper(p, conn, report, trigger_type, trigger_ref)
+                    _process_paper(
+                        p,
+                        conn,
+                        report,
+                        trigger_type,
+                        trigger_ref,
+                        direction="references",
+                        anchor_paper_id=paper_id,
+                        anchor_external_id=s2_id,
+                    )
                 for p in s2_citations(s2_id, limit=limit):
-                    _process_paper(p, conn, report, trigger_type, trigger_ref)
+                    _process_paper(
+                        p,
+                        conn,
+                        report,
+                        trigger_type,
+                        trigger_ref,
+                        direction="cited_by",
+                        anchor_paper_id=paper_id,
+                        anchor_external_id=s2_id,
+                    )
             else:
                 logger.warning("Could not resolve S2 ID for paper %s", paper_id)
                 report.error_count += 1
@@ -258,7 +234,15 @@ def run_discovery(
         if source in ("all", "arxiv") and arxiv_id:
             results = arxiv_search(arxiv_id, max_results=limit)
             for p in results:
-                _process_paper(p, conn, report, trigger_type, trigger_ref)
+                _process_paper(
+                    p,
+                    conn,
+                    report,
+                    trigger_type,
+                    trigger_ref,
+                    anchor_paper_id=paper_id,
+                    anchor_external_id=arxiv_id,
+                )
 
     elif topic:
         if source in ("all", "semantic_scholar"):
@@ -285,22 +269,30 @@ def _process_paper(
     report: DiscoveryReport,
     trigger_type: str,
     trigger_ref: str | None,
+    *,
+    direction: str | None = None,
+    anchor_paper_id: str | None = None,
+    anchor_external_id: str | None = None,
 ) -> None:
     if not paper.external_id and not paper.doi and not paper.arxiv_id:
         report.error_count += 1
         return
 
-    if result_exists(
-        conn,
-        paper.source,
-        paper.external_id,
-        doi=paper.doi,
-        arxiv_id=paper.arxiv_id,
-    ):
-        report.duplicate_count += 1
-        return
-
     record = _external_paper_to_record(paper, trigger_type, trigger_ref)
-    _store_result(conn, record)
-    report.new_count += 1
-    report.records.append(record)
+    context = DiscoverySourceContext(
+        trigger_type=trigger_type,
+        trigger_ref=trigger_ref,
+        source=record.source,
+        direction=direction,
+        anchor_paper_id=anchor_paper_id,
+        anchor_external_id=anchor_external_id,
+        source_external_id=record.external_id,
+        relevance_score=record.relevance_score,
+        relevance_context=record.relevance_context,
+    )
+    outcome = store_discovery_record_with_source(conn, record, context)
+    if outcome.candidate_inserted:
+        report.new_count += 1
+        report.records.append(record)
+    else:
+        report.duplicate_count += 1

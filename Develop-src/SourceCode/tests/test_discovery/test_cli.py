@@ -8,7 +8,7 @@ from unittest.mock import patch
 from click.testing import CliRunner
 
 from artimanager.cli.main import cli
-from artimanager.db.connection import init_db
+from artimanager.db.connection import get_connection, init_db
 from artimanager.discovery._models import ExternalPaper
 
 
@@ -126,3 +126,40 @@ def test_discover_source_deepxiv_with_paper_id_fails(tmp_path: Path) -> None:
     assert res.exit_code == 1
     assert "Error:" in res.output
     assert "topic-only runs" in res.output
+
+
+def test_discovery_inbox_json_includes_provenance(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path=db_path, notes_root=notes_root)
+    conn = get_connection(db_path)
+    conn.execute(
+        """
+        INSERT INTO discovery_results
+        (discovery_result_id, trigger_type, trigger_ref, source, external_id,
+         title, authors, status)
+        VALUES ('r1', 'topic_anchor', 'graph', 'arxiv', '2401.00001',
+                'Graph Paper', '["Alice"]', 'new')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO discovery_result_sources
+        (source_id, provenance_key, discovery_result_id, trigger_type,
+         trigger_ref, source, source_external_id)
+        VALUES ('s1', 'v1|test', 'r1', 'topic_anchor', 'graph', 'arxiv', '2401.00001')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        ["discovery-inbox", "--config", str(cfg), "--json-output"],
+    )
+
+    assert res.exit_code == 0
+    assert '"provenance"' in res.output
+    assert '"source_external_id": "2401.00001"' in res.output

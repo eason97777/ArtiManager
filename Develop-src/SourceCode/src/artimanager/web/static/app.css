@@ -206,6 +206,23 @@ a:hover {
   border-collapse: collapse;
 }
 
+.discovery-table {
+  table-layout: fixed;
+}
+
+.discovery-context-row td {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.discovery-context-cell {
+  padding-bottom: 0.9rem !important;
+}
+
+.discovery-context-actions-spacer {
+  background: transparent;
+}
+
 .table th,
 .table td {
   border-top: 1px solid var(--line);
@@ -354,6 +371,12 @@ textarea {
   font-size: 0.9rem;
 }
 
+.author-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hint-text {
   margin-top: 0.65rem;
   color: var(--muted);
@@ -388,6 +411,54 @@ textarea {
   font-weight: 600;
 }
 
+.badge {
+  border: 1px solid #b7cbc3;
+  border-radius: 999px;
+  background: #eef7f3;
+  color: var(--accent-strong);
+  padding: 0.18rem 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.provenance-block {
+  margin-top: 0.6rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+}
+
+.provenance-heading {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.provenance-list {
+  margin: 0.35rem 0 0;
+  padding-left: 0;
+  display: grid;
+  gap: 0.35rem;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.provenance-list li {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.provenance-details {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.provenance-details ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+}
+
 .file-handoff {
   display: flex;
   flex-wrap: wrap;
@@ -418,7 +489,11 @@ textarea {
 .artifact {
   margin: 0.35rem 0 0;
   overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   max-height: 320px;
+  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fafaf7;

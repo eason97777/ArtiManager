@@ -42,7 +42,7 @@
 
 <section class="panel">
   {% if rows %}
-  <table class="table">
+  <table class="table discovery-table">
     <thead>
       <tr>
         <th>Candidate</th>
@@ -54,20 +54,14 @@
     </thead>
     <tbody>
       {% for row in rows %}
-      <tr>
+      <tr class="discovery-main-row">
         <td>
           <strong>{{ row.title }}</strong>
-          <div class="muted">{{ row.authors|join(", ") if row.authors else "(unknown)" }}</div>
+          <div class="muted author-line" title="{{ row.authors|join(', ') if row.authors else '(unknown)' }}">{{ row.author_line }}</div>
           <div class="muted">
             {{ row.published_at or "?" }}
             {% if row.external_id %} · {{ row.external_id }}{% endif %}
           </div>
-          {% if row.relevance_context %}
-          <details class="relevance">
-            <summary>Relevance context</summary>
-            <pre>{{ row.relevance_context }}</pre>
-          </details>
-          {% endif %}
         </td>
         <td>{{ row.source }}</td>
         <td>
@@ -91,6 +85,42 @@
             <button type="submit" class="btn btn-small">Apply</button>
           </form>
         </td>
+      </tr>
+      <tr class="discovery-context-row">
+        <td colspan="4" class="discovery-context-cell">
+          {% if row.relevance_context %}
+          <details class="relevance">
+            <summary>Relevance context</summary>
+            <pre>{{ row.relevance_context }}</pre>
+          </details>
+          {% endif %}
+          <div class="provenance-block">
+            <div class="provenance-heading">Why shown</div>
+            {% if row.provenance %}
+            <ul class="provenance-list">
+              {% for item in row.provenance %}
+              <li>
+                <span class="badge">{{ item.source or "unknown" }}</span>
+                <span>{{ item.summary }}</span>
+                {% if item.details %}
+                <details class="provenance-details">
+                  <summary>Details</summary>
+                  <ul>
+                    {% for detail in item.details %}
+                    <li>{{ detail }}</li>
+                    {% endfor %}
+                  </ul>
+                </details>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <div class="muted">No provenance recorded.</div>
+            {% endif %}
+          </div>
+        </td>
+        <td class="discovery-context-actions-spacer"></td>
       </tr>
       {% endfor %}
     </tbody>

@@ -23,6 +23,7 @@ from artimanager.analysis.suggest import (
 from artimanager.config import load_config
 from artimanager.db.connection import get_connection, init_db
 from artimanager.discovery.engine import run_discovery
+from artimanager.discovery.provenance import list_discovery_sources
 from artimanager.discovery.review import review_discovery_result
 from artimanager.notes.manager import create_note, get_note, init_note_from_template
 from artimanager.papers.manager import (
@@ -40,6 +41,8 @@ from artimanager.tracking.manager import (
     create_tracking_rule,
     delete_tracking_rule,
     list_tracking_rules,
+    serialize_openalex_author_tracking_query,
+    serialize_citation_tracking_query,
     update_tracking_rule,
 )
 from artimanager.tracking.runner import run_tracking
@@ -493,6 +496,11 @@ def discovery_inbox(config_path: str, status: str | None, trigger_type: str | No
         sql += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         rows = conn.execute(sql, params).fetchall()
+        provenance_by_result = (
+            list_discovery_sources(conn, [r[0] for r in rows])
+            if json_output
+            else {}
+        )
     finally:
         conn.close()
 
@@ -514,6 +522,7 @@ def discovery_inbox(config_path: str, status: str | None, trigger_type: str | No
                 "review_action": r[7],
                 "trigger_type": r[8],
                 "trigger_ref": r[9],
+                "provenance": provenance_by_result.get(r[0], []),
             })
         click.echo(json.dumps(items, indent=2, ensure_ascii=False))
         return
@@ -582,12 +591,25 @@ def discovery_review(result_id: str, action: str, config_path: str,
               type=click.Path(exists=True), help="Path to config.toml")
 @click.option("--name", required=True, help="Tracking rule name")
 @click.option("--type", "rule_type", required=True,
-              type=click.Choice(["keyword", "topic", "author", "category"]),
+              type=click.Choice(["keyword", "topic", "author", "category", "citation", "openalex_author"]),
               help="Tracking rule type")
-@click.option("--query", required=True, help="Tracking query")
+@click.option("--query", default=None, help="Tracking query")
+@click.option("--paper-id", default=None, help="Anchor paper ID for citation rules")
+@click.option(
+    "--direction",
+    default=None,
+    type=click.Choice(["cited_by", "references"]),
+    help="Citation direction for citation rules",
+)
+@click.option("--limit", default=20, type=int, help="Rule-level fetch limit")
+@click.option("--author-id", default=None, help="Stable OpenAlex author ID for openalex_author rules")
+@click.option("--display-name", default=None, help="Optional OpenAlex author display metadata")
 @click.option("--schedule", default=None, help="Schedule label (defaults to config)")
 def tracking_create(config_path: str, name: str, rule_type: str,
-                    query: str, schedule: str | None) -> None:
+                    query: str | None, paper_id: str | None,
+                    direction: str | None, limit: int,
+                    author_id: str | None, display_name: str | None,
+                    schedule: str | None) -> None:
     """Create a tracking rule."""
     cfg = load_config(config_path)
     db_path = Path(cfg.db_path)
@@ -598,6 +620,41 @@ def tracking_create(config_path: str, name: str, rule_type: str,
     resolved_schedule = schedule or cfg.tracking_schedule
     conn = get_connection(cfg.db_path)
     try:
+        if rule_type == "citation":
+            has_anchor_flags = paper_id is not None or direction is not None
+            if query and has_anchor_flags:
+                raise ValueError(
+                    "Citation tracking accepts either --query JSON or --paper-id/--direction, not both"
+                )
+            if not query:
+                if not paper_id or not direction:
+                    raise ValueError(
+                        "Citation tracking requires --paper-id and --direction when --query is not used"
+                    )
+                query = serialize_citation_tracking_query(
+                    conn,
+                    paper_id=paper_id,
+                    direction=direction,
+                    limit=limit,
+                )
+        elif rule_type == "openalex_author":
+            has_openalex_flags = author_id is not None or display_name is not None
+            if query and has_openalex_flags:
+                raise ValueError(
+                    "OpenAlex author tracking accepts either --query JSON or --author-id/--display-name, not both"
+                )
+            if not query:
+                if not author_id:
+                    raise ValueError(
+                        "OpenAlex author tracking requires --author-id when --query is not used"
+                    )
+                query = serialize_openalex_author_tracking_query(
+                    author_id=author_id,
+                    display_name=display_name,
+                    limit=limit,
+                )
+        elif not query:
+            raise ValueError(f"{rule_type} tracking requires --query")
         rule = create_tracking_rule(
             conn,
             name=name,
@@ -753,7 +810,7 @@ def tracking_delete(tracking_rule_id: str, config_path: str) -> None:
 @click.option("--config", "-c", "config_path", required=True,
               type=click.Path(exists=True), help="Path to config.toml")
 @click.option("--rule-id", "tracking_rule_id", default=None, help="Run one tracking rule by ID")
-@click.option("--limit", default=20, type=int, help="Max arXiv candidates per rule")
+@click.option("--limit", default=20, type=int, help="Max candidates per rule")
 def tracking_run(config_path: str, tracking_rule_id: str | None, limit: int) -> None:
     """Run tracking rules and store candidates in discovery inbox."""
     cfg = load_config(config_path)
@@ -796,7 +853,17 @@ def tracking_run(config_path: str, tracking_rule_id: str | None, limit: int) -> 
               type=click.Path(exists=True), help="Path to config.toml")
 @click.option("--paper-id", required=True, help="Paper ID to create note for")
 @click.option("--title", default=None, help="Note title (defaults to paper title)")
-def note_create(config_path: str, paper_id: str, title: str | None) -> None:
+@click.option(
+    "--filename",
+    default=None,
+    help="Safe Markdown filename under notes_root (defaults to <paper_id>.md)",
+)
+def note_create(
+    config_path: str,
+    paper_id: str,
+    title: str | None,
+    filename: str | None,
+) -> None:
     """Create a Markdown note for a paper, initialised from the default template."""
     cfg = load_config(config_path)
     db_path = Path(cfg.db_path)
@@ -812,10 +879,16 @@ def note_create(config_path: str, paper_id: str, title: str | None) -> None:
             ).fetchone()
             title = row[0] if row else ""
 
-        record = init_note_from_template(
-            conn, paper_id, cfg.notes_root, title=title,
-            template_path=cfg.template_path if cfg.template_path else None,
-        )
+        try:
+            record = init_note_from_template(
+                conn, paper_id, cfg.notes_root, title=title,
+                template_path=cfg.template_path if cfg.template_path else None,
+                filename=filename,
+            )
+        except ValueError as exc:
+            conn.rollback()
+            click.echo(str(exc), err=True)
+            sys.exit(1)
         # Make newly created note searchable without requiring manual reindex.
         index_paper(conn, paper_id)
         conn.commit()

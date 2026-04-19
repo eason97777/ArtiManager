@@ -21,6 +21,7 @@ from artimanager.web.deps import (
     open_db,
     with_query,
 )
+from artimanager.web.view_models import tracking_rule_view
 
 router = APIRouter()
 
@@ -36,7 +37,7 @@ def _render_tracking_page(
     templates = get_templates(request)
     conn = open_db(request)
     try:
-        rules = list_tracking_rules(conn)
+        rules = [tracking_rule_view(rule) for rule in list_tracking_rules(conn)]
     finally:
         conn.close()
     return templates.TemplateResponse(
@@ -136,6 +137,7 @@ def tracking_delete_post(
     request: Request,
     rule_id: str,
     redirect_to: str = Form(default="/tracking"),
+    delete_new_discovery: str | None = Form(default=None),
 ):
     parsed = urlparse(redirect_to)
     redirect_path = parsed.path or "/tracking"
@@ -144,7 +146,11 @@ def tracking_delete_post(
 
     conn = open_db(request)
     try:
-        delete_tracking_rule(conn, rule_id)
+        report = delete_tracking_rule(
+            conn,
+            rule_id,
+            delete_new_discovery=delete_new_discovery not in {None, "", "0", "false", "False"},
+        )
         conn.commit()
     except ValueError as exc:
         conn.rollback()
@@ -155,10 +161,10 @@ def tracking_delete_post(
     finally:
         conn.close()
 
-    return RedirectResponse(
-        url=with_query(redirect_path, [("ok", f"Tracking rule deleted: {rule_id}")]),
-        status_code=303,
-    )
+    message = f"Tracking rule deleted: {rule_id}"
+    if delete_new_discovery not in {None, "", "0", "false", "False"}:
+        message += f"; deleted {report.deleted_discovery_count} new discovery candidates"
+    return RedirectResponse(url=with_query(redirect_path, [("ok", message)]), status_code=303)
 
 
 @router.post("/tracking/run", response_class=HTMLResponse)

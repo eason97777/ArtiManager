@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS papers (
     arxiv_id        TEXT,
     canonical_source TEXT,          -- reserved for Phase 6+
     zotero_item_key TEXT,
-    workflow_status TEXT NOT NULL DEFAULT 'discovered',
+    workflow_status TEXT NOT NULL DEFAULT 'inbox',
     reading_state   TEXT NOT NULL DEFAULT 'to_read',
     research_state  TEXT NOT NULL DEFAULT 'untriaged',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -149,6 +149,25 @@ CREATE TABLE IF NOT EXISTS tracking_rules (
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS discovery_result_sources (
+    source_id             TEXT PRIMARY KEY,
+    provenance_key        TEXT NOT NULL UNIQUE,
+    discovery_result_id   TEXT NOT NULL REFERENCES discovery_results(discovery_result_id),
+    trigger_type          TEXT NOT NULL,
+    trigger_ref           TEXT,
+    tracking_rule_id      TEXT REFERENCES tracking_rules(tracking_rule_id),
+    source                TEXT NOT NULL,
+    direction             TEXT,
+    anchor_paper_id       TEXT REFERENCES papers(paper_id),
+    anchor_external_id    TEXT,
+    anchor_author_id      TEXT,
+    anchor_institution_id TEXT,
+    source_external_id    TEXT,
+    relevance_score       REAL,
+    relevance_context     TEXT,
+    created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ============================================================
 -- Agent analysis (Phase 8)
 -- ============================================================
@@ -174,6 +193,10 @@ CREATE INDEX IF NOT EXISTS idx_papers_doi ON papers(doi);
 CREATE INDEX IF NOT EXISTS idx_papers_arxiv_id ON papers(arxiv_id);
 CREATE INDEX IF NOT EXISTS idx_file_assets_sha256 ON file_assets(sha256);
 CREATE INDEX IF NOT EXISTS idx_file_assets_paper_id ON file_assets(paper_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_sources_result
+    ON discovery_result_sources(discovery_result_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_sources_tracking_rule
+    ON discovery_result_sources(tracking_rule_id);
 
 -- ============================================================
 -- FTS5 virtual tables (Phase 2 — Local Search)

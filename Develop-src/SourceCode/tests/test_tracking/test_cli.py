@@ -107,6 +107,253 @@ def test_tracking_create_and_list(tmp_path: Path) -> None:
     assert data[0]["name"] == "NLP feed"
 
 
+def test_tracking_create_citation_stores_canonical_json(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+    conn = get_connection(db_path)
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, doi, workflow_status) "
+        "VALUES ('p1', 'Paper', '10.1234/test', 'inbox')"
+    )
+    conn.commit()
+    conn.close()
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "Citations of Paper",
+            "--type", "citation",
+            "--paper-id", "p1",
+            "--direction", "cited_by",
+            "--limit", "20",
+        ],
+    )
+
+    assert res.exit_code == 0
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT rule_type, query FROM tracking_rules").fetchone()
+    conn.close()
+    assert row["rule_type"] == "citation"
+    assert json.loads(row["query"]) == {
+        "schema_version": 1,
+        "paper_id": "p1",
+        "direction": "cited_by",
+        "source": "semantic_scholar",
+        "limit": 20,
+    }
+
+
+def test_tracking_create_non_citation_without_query_is_rejected(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "NLP feed",
+            "--type", "keyword",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "requires --query" in res.output
+
+
+def test_tracking_create_citation_rejects_query_plus_anchor_flags(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "Citations",
+            "--type", "citation",
+            "--query", '{"schema_version":1,"paper_id":"p1","direction":"cited_by","source":"semantic_scholar","limit":20}',
+            "--paper-id", "p1",
+            "--direction", "cited_by",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "either --query JSON or --paper-id/--direction" in res.output
+
+
+def test_tracking_create_citation_rejects_unknown_paper(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "Citations",
+            "--type", "citation",
+            "--paper-id", "missing",
+            "--direction", "cited_by",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "Paper not found" in res.output
+
+
+def test_tracking_create_citation_accepts_advanced_query_json(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+    conn = get_connection(db_path)
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, arxiv_id, workflow_status) "
+        "VALUES ('p1', 'Paper', '2401.00001v2', 'inbox')"
+    )
+    conn.commit()
+    conn.close()
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "References",
+            "--type", "citation",
+            "--query", '{"schema_version":1,"paper_id":"p1","direction":"references","source":"semantic_scholar","limit":200}',
+        ],
+    )
+
+    assert res.exit_code == 0
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT query FROM tracking_rules").fetchone()
+    conn.close()
+    assert json.loads(row["query"])["limit"] == 100
+
+
+def test_tracking_create_openalex_author_stores_canonical_json(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "OpenAlex Alice",
+            "--type", "openalex_author",
+            "--author-id", "A123456789",
+            "--display-name", " Alice Smith ",
+            "--limit", "250",
+        ],
+    )
+
+    assert res.exit_code == 0
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT rule_type, query FROM tracking_rules").fetchone()
+    conn.close()
+    assert row["rule_type"] == "openalex_author"
+    assert json.loads(row["query"]) == {
+        "schema_version": 1,
+        "author_id": "https://openalex.org/A123456789",
+        "display_name": "Alice Smith",
+        "source": "openalex",
+        "limit": 100,
+    }
+
+
+def test_tracking_create_openalex_author_rejects_query_plus_author_flags(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "OpenAlex Alice",
+            "--type", "openalex_author",
+            "--query", '{"schema_version":1,"author_id":"A123456789","source":"openalex","limit":20}',
+            "--author-id", "A123456789",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "either --query JSON or --author-id/--display-name" in res.output
+
+
+def test_tracking_create_openalex_author_rejects_raw_name(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "OpenAlex Alice",
+            "--type", "openalex_author",
+            "--author-id", "Alice Smith",
+        ],
+    )
+
+    assert res.exit_code == 1
+    assert "OpenAlex author_id must be a stable ID" in res.output
+
+
+def test_tracking_create_openalex_author_advanced_query_json(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+
+    runner = CliRunner()
+    res = runner.invoke(
+        cli,
+        [
+            "tracking-create",
+            "--config", str(cfg),
+            "--name", "OpenAlex Alice",
+            "--type", "openalex_author",
+            "--query", '{"schema_version":1,"author_id":"https://openalex.org/A123456789","display_name":"Alice","source":"openalex","limit":5}',
+        ],
+    )
+
+    assert res.exit_code == 0
+    conn = get_connection(db_path)
+    row = conn.execute("SELECT query FROM tracking_rules").fetchone()
+    conn.close()
+    assert json.loads(row["query"])["author_id"] == "https://openalex.org/A123456789"
+
+
 def test_tracking_update_disable(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     notes_root = tmp_path / "notes"

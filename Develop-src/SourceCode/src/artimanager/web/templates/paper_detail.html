@@ -86,11 +86,25 @@
   </article>
 
   <article class="panel">
-    <h2>Note (IDE Handoff)</h2>
+    <h2>Markdown Note</h2>
     {% if note %}
     <dl class="kv">
       <dt>Title</dt><dd>{{ note.title or "(untitled)" }}</dd>
-      <dt>Path</dt><dd>{{ note.location }}</dd>
+      <dt>Path</dt>
+      <dd>
+        <div class="file-handoff">
+          <code class="path-text">{{ note.location }}</code>
+          <button type="button" class="btn btn-small btn-secondary copy-button"
+                  data-copy-text="{{ note.location }}">
+            Copy path
+          </button>
+          {% if local_open_supported and note.exists %}
+          <form method="post" action="/papers/{{ paper.paper_id }}/notes/{{ note.note_id }}/open">
+            <button type="submit" class="btn btn-small">Open locally</button>
+          </form>
+          {% endif %}
+        </div>
+      </dd>
       <dt>Status</dt>
       <dd>
         {% if note.exists %}
@@ -110,13 +124,32 @@
       Note record exists but local file is missing. Use your IDE/local workspace to restore or recreate it.
     </div>
     {% endif %}
+    <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/notes/{{ note.note_id }}">
+      <label>
+        Title
+        <input type="text" name="title" value="{{ note.title or '' }}">
+      </label>
+      <label>
+        Markdown filename
+        <input type="text" name="filename" value="{{ note.filename }}" required>
+      </label>
+      <button type="submit" class="btn">Update note metadata</button>
+    </form>
     {% else %}
     <p class="muted">No markdown note linked for this paper.</p>
-    <form method="post" action="/papers/{{ paper.paper_id }}/notes/create">
-      <button type="submit" class="btn btn-small">Create Markdown note</button>
+    <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/notes/create">
+      <label>
+        Title
+        <input type="text" name="title" value="{{ paper.title if paper.title != '(untitled)' else '' }}">
+      </label>
+      <label>
+        Markdown filename
+        <input type="text" name="filename" value="{{ paper.paper_id }}.md" required>
+      </label>
+      <button type="submit" class="btn">Create Markdown note</button>
     </form>
     {% endif %}
-    <p class="hint-text">Editing and authoring notes remain IDE/Markdown workflow tasks (CLI: <code>note-create</code>).</p>
+    <p class="hint-text">Markdown note files stay under <code>notes_root</code>. Editing note content remains an IDE/Markdown workflow task.</p>
   </article>
 
   <article class="panel">
@@ -150,13 +183,60 @@
   </article>
 
   <article class="panel">
+    <h2>Citation Tracking</h2>
+    <p class="hint-text">Create a Semantic Scholar citation tracking rule anchored to this paper. Running the rule remains a separate tracking action, and results still go to Discovery Inbox for review.</p>
+    {% if paper.doi or paper.arxiv_id %}
+    <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/tracking-rules">
+      <label>
+        Direction
+        <select name="direction" required>
+          <option value="cited_by">cited_by</option>
+          <option value="references">references</option>
+        </select>
+      </label>
+      <label>
+        Rule name
+        <input type="text" name="name" placeholder="Optional custom name">
+      </label>
+      <label>
+        Limit
+        <input type="number" name="limit" min="1" max="100" value="20">
+      </label>
+      <label>
+        Schedule
+        <input type="text" name="schedule" placeholder="daily">
+      </label>
+      <button type="submit" class="btn">Create citation tracking rule</button>
+    </form>
+    {% else %}
+    <div class="warning-box">
+      Citation tracking requires a DOI or arXiv ID for this paper.
+    </div>
+    {% endif %}
+  </article>
+
+  <article class="panel">
     <h2>Validation (Local Workspace Handoff)</h2>
     {% if validations %}
     <ul class="list">
       {% for v in validations %}
       <li>
         <strong>{{ v.outcome }}</strong> · {{ v.updated_at }}
-        {% if v.path %}<div class="muted">Path: {{ v.path }}</div>{% endif %}
+        {% if v.path %}
+        <div class="file-handoff">
+          {% if v.path_kind %}<span class="badge">{{ v.path_kind }}</span>{% endif %}
+          <code class="path-text">{{ v.path }}</code>
+          <button type="button" class="btn btn-small btn-secondary copy-button"
+                  data-copy-text="{{ v.path }}">
+            Copy path
+          </button>
+          {% if local_open_supported and v.path_exists %}
+          <form method="post" action="/papers/{{ paper.paper_id }}/validations/{{ v.validation_id }}/open">
+            <button type="submit" class="btn btn-small">Open locally</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
         {% if v.repo_url %}<div class="muted">Repo: {{ v.repo_url }}</div>{% endif %}
         {% if v.summary %}<div>{{ v.summary }}</div>{% endif %}
       </li>
@@ -167,8 +247,8 @@
     {% endif %}
     <form class="form-grid compact-form" method="post" action="/papers/{{ paper.paper_id }}/validations">
       <label>
-        Workspace Path
-        <input type="text" name="path" placeholder="/path/to/reproduction">
+        Workspace / Notebook / Artifact Path
+        <input type="text" name="path" placeholder="/path/to/workspace-or-notebook.ipynb">
       </label>
       <label>
         Repo URL
@@ -180,7 +260,7 @@
       </label>
       <button type="submit" class="btn">Add validation record</button>
     </form>
-    <p class="hint-text">This form records validation metadata only. Running experiments remains a local workspace task.</p>
+    <p class="hint-text">This form records validation metadata and registered artifact paths only. Opening a notebook uses the OS default handler and never executes experiments from the browser.</p>
   </article>
 
   <article class="panel">
@@ -205,6 +285,45 @@
     {% endif %}
     <p class="hint-text">Bibliography-centric changes remain Zotero-native workflows. Direct Zotero opening is not controlled by ArtiManager in this phase.</p>
   </article>
+
+  {% if discovery_origins %}
+  <article class="panel">
+    <h2>Discovery Origins</h2>
+    <ul class="list">
+      {% for origin in discovery_origins %}
+      <li>
+        <strong>{{ origin.title }}</strong>
+        <div class="muted">
+          {{ origin.source }}{% if origin.external_id %} · {{ origin.external_id }}{% endif %}
+          · {{ origin.status }}{% if origin.review_action %} / {{ origin.review_action }}{% endif %}
+        </div>
+        {% if origin.provenance %}
+        <ul class="provenance-list">
+          {% for item in origin.provenance %}
+          <li>
+            <span class="badge">{{ item.source or "unknown" }}</span>
+            <span>{{ item.summary }}</span>
+            {% if item.details %}
+            <details class="provenance-details">
+              <summary>Details</summary>
+              <ul>
+                {% for detail in item.details %}
+                <li>{{ detail }}</li>
+                {% endfor %}
+              </ul>
+            </details>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="muted">No provenance recorded.</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </article>
+  {% endif %}
 
   <article class="panel">
     <h2>Relationships</h2>

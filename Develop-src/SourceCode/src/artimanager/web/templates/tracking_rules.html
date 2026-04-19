@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <h1>Tracking Rules</h1>
-  <p>Manage and run arXiv tracking subscriptions.</p>
+  <p>Manage and run local tracking subscriptions.</p>
 </section>
 
 {% if run_summary %}
@@ -63,6 +63,7 @@
       <tr>
         <th>Name</th>
         <th>Type</th>
+        <th>Summary</th>
         <th>Query</th>
         <th>Schedule</th>
         <th>Enabled</th>
@@ -74,7 +75,13 @@
       <tr>
         <td>{{ rule.name }}</td>
         <td>{{ rule.rule_type }}</td>
-        <td>{{ rule.query }}</td>
+        <td>
+          <div {% if rule.query_summary.invalid %}class="warning-text"{% endif %}>{{ rule.query_summary.summary }}</div>
+          {% if rule.query_summary.details %}
+          <div class="muted">{{ rule.query_summary.details|join(" · ") }}</div>
+          {% endif %}
+        </td>
+        <td><code class="path-text">{{ rule.query }}</code></td>
         <td>{{ rule.schedule or "(none)" }}</td>
         <td>{{ "true" if rule.enabled else "false" }}</td>
         <td>
@@ -94,6 +101,10 @@
           </form>
           <form class="inline-form compact danger" method="post" action="/tracking/{{ rule.tracking_rule_id }}/delete" data-confirm="Delete this tracking rule?">
             <input type="hidden" name="redirect_to" value="/tracking">
+            <label class="checkbox-line">
+              <input type="checkbox" name="delete_new_discovery" value="true">
+              Also delete new Discovery candidates produced only by this rule
+            </label>
             <button type="submit" class="btn btn-danger btn-small">Delete</button>
           </form>
         </td>

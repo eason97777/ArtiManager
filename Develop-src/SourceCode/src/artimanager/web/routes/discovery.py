@@ -18,6 +18,11 @@ from artimanager.web.deps import (
     open_db,
     parse_json_list,
 )
+from artimanager.web.view_models import (
+    clean_relevance_context_for_display,
+    compact_author_list,
+    load_provenance_views,
+)
 
 router = APIRouter()
 
@@ -78,6 +83,7 @@ def _load_discovery_rows(
         sql += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         rows = conn.execute(sql, params).fetchall()
+        provenance_by_result = load_provenance_views(conn, [row[0] for row in rows])
     finally:
         conn.close()
 
@@ -86,15 +92,20 @@ def _load_discovery_rows(
             "discovery_result_id": row[0],
             "title": row[1] or "(untitled)",
             "authors": parse_json_list(row[2]),
+            "author_line": compact_author_list(parse_json_list(row[2])),
             "source": row[3],
             "external_id": row[4],
             "published_at": row[5],
             "relevance_score": row[6],
-            "relevance_context": row[7],
+            "relevance_context": clean_relevance_context_for_display(
+                row[7],
+                relevance_score=row[6],
+            ),
             "status": row[8],
             "review_action": row[9],
             "trigger_type": row[10],
             "trigger_ref": row[11],
+            "provenance": provenance_by_result.get(row[0], []),
         }
         for row in rows
     ]

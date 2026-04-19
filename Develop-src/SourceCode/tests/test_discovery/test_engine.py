@@ -63,6 +63,10 @@ class TestRunDiscoveryTopic:
 
         rows = db_conn.execute("SELECT COUNT(*) FROM discovery_results").fetchone()
         assert rows[0] == 2
+        source_rows = db_conn.execute(
+            "SELECT COUNT(*) FROM discovery_result_sources"
+        ).fetchone()
+        assert source_rows[0] == 2
 
     @patch("artimanager.discovery.engine.s2_search")
     def test_topic_dedup(self, mock_s2, db_conn: sqlite3.Connection) -> None:
@@ -75,6 +79,10 @@ class TestRunDiscoveryTopic:
         r2 = run_discovery(db_conn, topic="test", source="semantic_scholar")
         assert r2.duplicate_count == 1
         assert r2.new_count == 0
+        source_rows = db_conn.execute(
+            "SELECT COUNT(*) FROM discovery_result_sources"
+        ).fetchone()
+        assert source_rows[0] == 1
 
     @patch("artimanager.discovery.engine.deepxiv_search")
     def test_topic_deepxiv_new_results(
@@ -98,6 +106,11 @@ class TestRunDiscoveryTopic:
         )
         assert report.new_count == 1
         assert report.duplicate_count == 0
+        row = db_conn.execute(
+            "SELECT trigger_type, trigger_ref, source, source_external_id "
+            "FROM discovery_result_sources"
+        ).fetchone()
+        assert tuple(row) == ("topic_anchor", "gnn", "deepxiv_arxiv", "10.9999/dx")
         mock_deepxiv.assert_called_once_with("gnn", cfg, limit=20)
 
     def test_topic_deepxiv_requires_config(self, db_conn: sqlite3.Connection) -> None:
@@ -198,6 +211,10 @@ class TestRunDiscoveryPaper:
         report = run_discovery(db_conn, paper_id="p1", source="semantic_scholar")
         assert report.new_count == 2
         assert report.duplicate_count == 0
+        rows = db_conn.execute(
+            "SELECT direction, anchor_paper_id FROM discovery_result_sources ORDER BY direction"
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [("cited_by", "p1"), ("references", "p1")]
 
     def test_paper_not_found(self, db_conn: sqlite3.Connection) -> None:
         with pytest.raises(ValueError, match="Paper not found"):

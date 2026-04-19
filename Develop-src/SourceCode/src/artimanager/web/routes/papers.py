@@ -13,7 +13,11 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from artimanager.analysis.manager import list_analyses
-from artimanager.notes.manager import get_note, init_note_from_template
+from artimanager.notes.manager import (
+    get_note,
+    init_note_from_template,
+    update_markdown_note_metadata,
+)
 from artimanager.papers.manager import (
     READING_STATE_VALUES,
     RESEARCH_STATE_VALUES,
@@ -28,6 +32,10 @@ from artimanager.tags.manager import (
     list_tags_for_paper,
     remove_tag_from_paper,
 )
+from artimanager.tracking.manager import (
+    create_tracking_rule,
+    serialize_citation_tracking_query,
+)
 from artimanager.validation.manager import create_validation, get_validations
 from artimanager.web.deps import (
     context,
@@ -36,6 +44,7 @@ from artimanager.web.deps import (
     open_db,
     parse_json_list,
 )
+from artimanager.web.view_models import load_provenance_views
 
 router = APIRouter()
 
@@ -113,6 +122,21 @@ def _note_preview(path: Path) -> str | None:
     return normalized[:280].rstrip() + "..."
 
 
+def _validation_path_kind(path_value: str | None) -> tuple[str | None, bool]:
+    if not path_value:
+        return None, False
+    path = Path(path_value)
+    if not path.exists():
+        return "Missing path", False
+    if path.is_dir():
+        return "Workspace", True
+    if path.suffix.lower() == ".ipynb":
+        return "Notebook", True
+    if path.is_file():
+        return "Artifact", True
+    return "Artifact", True
+
+
 def _paper_detail_payload(conn, paper_id: str) -> dict:
     paper_row = conn.execute(
         """
@@ -180,13 +204,30 @@ def _paper_detail_payload(conn, paper_id: str) -> dict:
             "note_id": note_record.note_id,
             "note_type": note_record.note_type,
             "location": note_record.location,
+            "filename": note_path.name,
             "title": note_record.title,
             "updated_at": note_record.updated_at,
             "exists": note_exists,
             "preview": _note_preview(note_path) if note_exists else None,
         }
 
-    validations = get_validations(conn, paper_id)
+    validations = []
+    for validation in get_validations(conn, paper_id):
+        path_kind, path_exists = _validation_path_kind(validation.path)
+        validations.append(
+            {
+                "validation_id": validation.validation_id,
+                "paper_id": validation.paper_id,
+                "path": validation.path,
+                "path_kind": path_kind,
+                "path_exists": path_exists,
+                "repo_url": validation.repo_url,
+                "environment_note": validation.environment_note,
+                "outcome": validation.outcome,
+                "summary": validation.summary,
+                "updated_at": validation.updated_at,
+            }
+        )
     tags = list_tags_for_paper(conn, paper_id)
     analyses = list_analyses(conn, paper_id=paper_id, limit=100)
     relationships = get_relationships(conn, paper_id, direction="both")
@@ -220,6 +261,29 @@ def _paper_detail_payload(conn, paper_id: str) -> dict:
             "last_synced_at": zotero_row[3],
         }
 
+    origin_rows = conn.execute(
+        """
+        SELECT discovery_result_id, title, source, external_id, status, review_action
+        FROM discovery_results
+        WHERE imported_paper_id = ?
+        ORDER BY created_at DESC
+        """,
+        (paper_id,),
+    ).fetchall()
+    origin_provenance = load_provenance_views(conn, [row[0] for row in origin_rows])
+    discovery_origins = [
+        {
+            "discovery_result_id": row[0],
+            "title": row[1] or "(untitled)",
+            "source": row[2],
+            "external_id": row[3],
+            "status": row[4],
+            "review_action": row[5],
+            "provenance": origin_provenance.get(row[0], []),
+        }
+        for row in origin_rows
+    ]
+
     return {
         "paper": paper,
         "files": files,
@@ -231,6 +295,7 @@ def _paper_detail_payload(conn, paper_id: str) -> dict:
         "suggested_relationships": suggested_relationships,
         "other_relationships": other_relationships,
         "analyses": analyses,
+        "discovery_origins": discovery_origins,
     }
 
 
@@ -434,8 +499,15 @@ def paper_tag_remove(
     return _redirect_with_message(f"/papers/{paper_id}", ok=message)
 
 
-@router.post("/papers/{paper_id}/notes/create", response_class=HTMLResponse)
-def paper_note_create(request: Request, paper_id: str):
+@router.post("/papers/{paper_id}/tracking-rules", response_class=HTMLResponse)
+def paper_citation_tracking_create(
+    request: Request,
+    paper_id: str,
+    direction: str = Form(...),
+    name: str | None = Form(default=None),
+    limit: str = Form(default="20"),
+    schedule: str | None = Form(default=None),
+):
     cfg = get_app_config(request)
     conn = open_db(request)
     try:
@@ -445,23 +517,172 @@ def paper_note_create(request: Request, paper_id: str):
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id}")
-        title = row["title"] if isinstance(row, sqlite3.Row) else row[0]
-        note = init_note_from_template(
+        paper_title = (row["title"] if isinstance(row, sqlite3.Row) else row[0]) or paper_id
+        try:
+            parsed_limit = int((limit or "").strip())
+        except ValueError as exc:
+            raise ValueError("Citation tracking limit must be an integer") from exc
+        query = serialize_citation_tracking_query(
             conn,
-            paper_id,
-            cfg.notes_root,
-            title=title or "",
-            template_path=cfg.template_path if cfg.template_path else None,
+            paper_id=paper_id,
+            direction=direction,
+            limit=parsed_limit,
         )
-        index_paper(conn, paper_id)
+        default_name = (
+            f"Citations to {paper_title}"
+            if direction == "cited_by"
+            else f"References from {paper_title}"
+        )
+        rule = create_tracking_rule(
+            conn,
+            name=(name or "").strip() or default_name,
+            rule_type="citation",
+            query=query,
+            schedule=(schedule or cfg.tracking_schedule),
+            enabled=True,
+        )
         conn.commit()
+    except ValueError as exc:
+        conn.rollback()
+        return render_paper_detail_page(request, paper_id, status_code=400, error_message=str(exc))
     except sqlite3.Error as exc:
         conn.rollback()
         return render_paper_detail_page(request, paper_id, status_code=400, error_message=str(exc))
     finally:
         conn.close()
 
+    return _redirect_with_message(
+        f"/papers/{paper_id}",
+        ok=f"Citation tracking rule created: {rule.tracking_rule_id}",
+    )
+
+
+@router.post("/papers/{paper_id}/notes/create", response_class=HTMLResponse)
+async def paper_note_create(
+    request: Request,
+    paper_id: str,
+):
+    form = await request.form()
+    raw_title = form.get("title")
+    raw_filename = form.get("filename") if "filename" in form else None
+    title = str(raw_title) if raw_title is not None else None
+    filename = str(raw_filename) if raw_filename is not None else None
+    cfg = get_app_config(request)
+    conn = open_db(request)
+    try:
+        row = conn.execute(
+            "SELECT title FROM papers WHERE paper_id = ?",
+            (paper_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Paper not found: {paper_id}")
+        paper_title = row["title"] if isinstance(row, sqlite3.Row) else row[0]
+        note_title = (paper_title or "") if title is None else title.strip()
+        note = init_note_from_template(
+            conn,
+            paper_id,
+            cfg.notes_root,
+            title=note_title,
+            template_path=cfg.template_path if cfg.template_path else None,
+            filename=filename,
+        )
+        index_paper(conn, paper_id)
+        conn.commit()
+    except (ValueError, sqlite3.Error) as exc:
+        conn.rollback()
+        return render_paper_detail_page(request, paper_id, status_code=400, error_message=str(exc))
+    finally:
+        conn.close()
+
     return _redirect_with_message(f"/papers/{paper_id}", ok=f"Note ready: {note.note_id}")
+
+
+@router.post("/papers/{paper_id}/notes/{note_id}", response_class=HTMLResponse)
+async def paper_note_update(
+    request: Request,
+    paper_id: str,
+    note_id: str,
+):
+    form = await request.form()
+    raw_title = form.get("title")
+    raw_filename = form.get("filename") if "filename" in form else None
+    title = str(raw_title) if raw_title is not None else None
+    filename = str(raw_filename) if raw_filename is not None else None
+    cfg = get_app_config(request)
+    conn = open_db(request)
+    try:
+        note = update_markdown_note_metadata(
+            conn,
+            paper_id,
+            note_id,
+            cfg.notes_root,
+            title=title,
+            filename=filename,
+        )
+        index_paper(conn, paper_id)
+        conn.commit()
+    except ValueError as exc:
+        conn.rollback()
+        message = str(exc)
+        if "not found for paper" in message:
+            raise HTTPException(status_code=404, detail=message) from exc
+        return render_paper_detail_page(request, paper_id, status_code=400, error_message=message)
+    except sqlite3.Error as exc:
+        conn.rollback()
+        return render_paper_detail_page(request, paper_id, status_code=400, error_message=str(exc))
+    finally:
+        conn.close()
+
+    return _redirect_with_message(f"/papers/{paper_id}", ok=f"Note updated: {note.note_id}")
+
+
+@router.post("/papers/{paper_id}/notes/{note_id}/open", response_class=HTMLResponse)
+def paper_note_open(request: Request, paper_id: str, note_id: str):
+    conn = open_db(request)
+    try:
+        row = conn.execute(
+            """
+            SELECT location FROM notes
+            WHERE paper_id = ? AND note_id = ? AND note_type = 'markdown_note'
+            """,
+            (paper_id, note_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Note {note_id!r} not found for paper {paper_id!r}")
+    if not row[0]:
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=f"Note {note_id!r} has no registered path.",
+        )
+
+    note_path = Path(row[0])
+    if not note_path.exists():
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=f"Registered note path does not exist: {note_path}",
+        )
+
+    try:
+        _open_local_file(note_path)
+    except LocalOpenError as exc:
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=str(exc),
+        )
+
+    return _redirect_with_message(
+        f"/papers/{paper_id}",
+        ok=f"Open request sent for {note_path.name}.",
+    )
 
 
 @router.post("/papers/{paper_id}/validations", response_class=HTMLResponse)
@@ -489,6 +710,58 @@ def paper_validation_create(
         conn.close()
 
     return _redirect_with_message(f"/papers/{paper_id}", ok=f"Validation created: {record.validation_id}")
+
+
+@router.post("/papers/{paper_id}/validations/{validation_id}/open", response_class=HTMLResponse)
+def paper_validation_open(request: Request, paper_id: str, validation_id: str):
+    conn = open_db(request)
+    try:
+        row = conn.execute(
+            """
+            SELECT path FROM validation_records
+            WHERE paper_id = ? AND validation_id = ?
+            """,
+            (paper_id, validation_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Validation {validation_id!r} not found for paper {paper_id!r}",
+        )
+    if not row[0]:
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=f"Validation {validation_id!r} has no registered path.",
+        )
+
+    validation_path = Path(row[0])
+    if not validation_path.exists():
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=f"Registered validation path does not exist: {validation_path}",
+        )
+
+    try:
+        _open_local_file(validation_path)
+    except LocalOpenError as exc:
+        return render_paper_detail_page(
+            request,
+            paper_id,
+            status_code=400,
+            error_message=str(exc),
+        )
+
+    return _redirect_with_message(
+        f"/papers/{paper_id}",
+        ok=f"Open request sent for {validation_path.name}.",
+    )
 
 
 @router.post("/papers/{paper_id}/files/{file_id}/open", response_class=HTMLResponse)

@@ -105,6 +105,40 @@ def test_search_source_note(tmp_path: Path) -> None:
     assert data[0]["match_source"] == "note"
 
 
+def test_note_create_cli_accepts_custom_filename(tmp_path: Path) -> None:
+    db_path = tmp_path / "test.db"
+    notes_root = tmp_path / "notes"
+    init_db(db_path)
+    cfg = _write_config(tmp_path, db_path, notes_root)
+    conn = get_connection(db_path)
+    conn.execute(
+        "INSERT INTO papers (paper_id, title, workflow_status) VALUES ('p1', 'Graph Paper', 'inbox')"
+    )
+    conn.commit()
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "note-create",
+            "--config",
+            str(cfg),
+            "--paper-id",
+            "p1",
+            "--title",
+            "Graph Note",
+            "--filename",
+            "reading-note",
+        ],
+    )
+
+    assert result.exit_code == 0
+    note_path = notes_root / "reading-note.md"
+    assert note_path.exists()
+    assert f"Path:  {note_path}" in result.output
+
+
 def test_search_filter_tags(tmp_path: Path) -> None:
     db_path = tmp_path / "test.db"
     notes_root = tmp_path / "notes"

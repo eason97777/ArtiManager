@@ -40,6 +40,7 @@ artimanager scan --config config.toml
 artimanager inbox --config config.toml
 artimanager search "graph neural networks" --config config.toml
 artimanager note-create --config config.toml --paper-id <paper_id>
+artimanager note-create --config config.toml --paper-id <paper_id> --filename reading-note.md
 artimanager tag-add --config config.toml --paper-id <paper_id> --tag "gnn"
 artimanager tag-list --config config.toml --paper-id <paper_id>
 artimanager discover --config config.toml --topic "graph neural networks" --source arxiv
@@ -48,13 +49,17 @@ artimanager web --config config.toml
 
 Open the web workbench at `http://127.0.0.1:8000` after the `web` command starts.
 
-Paper detail pages show registered file paths with copy buttons and, where supported, an `Open locally` action. Local open is limited to file assets already stored in the database; if it fails, copy the visible path and open it manually. Zotero handoff on paper detail exposes the linked library metadata and item key for copying, but does not control or modify Zotero.
+Paper detail pages show registered file, Markdown note, and validation artifact paths with copy buttons and, where supported, an `Open locally` action. Local open is limited to paths already stored in the database; if it fails, copy the visible path and open it manually. Zotero handoff on paper detail exposes the linked library metadata and item key for copying, but does not control or modify Zotero.
 
-High-frequency triage is available from Web paper detail: controlled paper states, manual metadata correction, tag add/remove, create missing Markdown note, and validation metadata record creation. The same controlled state and metadata rules are available from `artimanager paper-update`.
+High-frequency triage is available from Web paper detail: controlled paper states, manual metadata correction, tag add/remove, missing Markdown note creation, existing Markdown note title/filename updates, and validation metadata/artifact path registration. Markdown notes remain `.md` files under `notes_root`; notebooks such as `.ipynb` should be registered as validation artifact paths, not notes. The same controlled state and metadata rules are available from `artimanager paper-update`.
 
 The Web search page also acts as a paper browser for state filters. Use links such as `/search?status=archived` or the visible Inbox/Active/Archived/Ignored shortcuts to recover papers after quick state actions move them out of inbox.
 
-The web workbench intentionally exposes only selected small review, metadata, and handoff actions. CLI remains the source of truth for online discovery runs, validation experiment work, analysis generation, and relationship suggestion generation until those workflows have a local job runner with status, logs, retries, and failure reporting.
+CLI tracking supports keyword/topic/author/category arXiv watches, citation watches through Semantic Scholar, and single-author identity watches through OpenAlex author IDs. Citation and OpenAlex rules write candidates into the discovery inbox and preserve provenance without calling the configured LLM provider.
+
+The Web discovery inbox shows why each candidate appeared, including topic, paper-anchor, citation, and OpenAlex author provenance when recorded. Paper detail pages show discovery-origin provenance for papers imported or linked from discovery review. The tracking page keeps raw JSON editable while adding readable summaries for citation and OpenAlex author rules.
+
+The web workbench intentionally exposes only selected small review, metadata, and handoff actions. Browser open handoff never executes notebooks or validation experiments. CLI remains the source of truth for online discovery runs, validation experiment work, analysis generation, and relationship suggestion generation until those workflows have a local job runner with status, logs, retries, and failure reporting.
 
 ## Configuration
 
